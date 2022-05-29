@@ -42,7 +42,7 @@ class Game(models.Model):
         return {
             'timer duration': duration,
             'time remaining': remaining,
-            'gamestate': prepared_gamestate,
+            'gamestate': prepared_gamestate,  # has meta.deck = {'name': {type, stage, text}} if full
             'chat': self.chat[-50:],
             'options': self.options if full else {},
             'people': self.people[0],

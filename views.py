@@ -51,7 +51,7 @@ class Load(View):
             return render(request, 'homepage.html')
         seat = get_seat(game, name)
         return render(request, f'{game.type}.html',
-                      game.response(rules_classes[game.type].response(game, seat),
+                      game.response(rules_classes[game.type].response(game, seat, full=True),
                                     datetime.now(), full=True))
 
 class Update(View):
@@ -73,9 +73,15 @@ class Update(View):
                 keyframe_name = rules.keyframe_name
                 prev = game.gamestate.meta[keyframe_name]
                 try:
-                    game.gamestate = rules.do_update(game)
+                    delta = rules.do_update(game)
+                    update(game.gamestate, delta)
+                    if message := game.gamestate['meta']['message']:
+                        game.chat('system', message, now)
+
                     if game.gamestate['meta'][keyframe_name] != prev:
                         game.keyframe()
+                    else:
+                        game.event('time', delta, now)
                 except Exception as e:
                     message = f'error doing timed update: {e}\nresetting to {keyframe_name} {prev}'
                     game.rewind(1, message)
@@ -93,7 +99,7 @@ class Submit(View):
         rules = rules_classes[game.type]
         seat = get_seat(game, name)
         move = json.loads(request.POST.get('move'))
-        game.event('move', move, now)
-        result = rules.move(move, seat)
-        game.event('delta', result, now)
+        result = rules.move(game, move, seat)
+        if result is 'success':
+            game.event('move', move, now)
         return JsonResponse(result)
