@@ -9,7 +9,6 @@ ROCK = 0
 PAPER = 1
 SCISSORS = 2
 
-
 def opp(p):
     return ('p1', 'p2')[p=='p1']
 
@@ -43,6 +42,12 @@ class Box(oBox):
                 setattr(self, item, Box())
             print("inventing a box")
         return super(Box, self).__getattr__(item)
+
+    def ga(self, item):
+        return self.__getattr__(item)
+
+
+empty_delta = Box({'meta': {'message': ''}})
 
 
 class inject(object):

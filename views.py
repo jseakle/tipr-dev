@@ -99,7 +99,10 @@ class Submit(View):
         rules = rules_classes[game.type]
         seat = get_seat(game, name)
         move = json.loads(request.POST.get('move'))
-        result = rules.move(game, move, seat)
-        if result is 'success':
-            game.event('move', move, now)
-        return JsonResponse(result)
+        delta = rules.move(game, seat, move)
+        if 'error' in delta:
+            return JsonResponse(delta)
+        game.event('move', move, now)
+        update(game.gamestate, delta)
+        game.save()
+        return JsonResponse(game.response(rules.repsonse(game, seat), now))

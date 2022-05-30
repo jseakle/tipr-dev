@@ -26,8 +26,8 @@ class RPSCard(object):
         delta.get(resolving_player).badges_used = list(set(gamestate.get(resolving_player).badges_used + badges_used))
 
         if stage == 1:
-            delta.get(resolving_player).badges = list(set(gamestate.get(resolving_player).badges) - set(badges_used))
-            delta.get(resolving_player).badges_used = []
+            delta.ga(resolving_player).badges = list(set(gamestate.get(resolving_player).badges) - set(badges_used))
+            delta.ga(resolving_player).badges_used = []
 
         return delta
 
@@ -80,7 +80,7 @@ class RPSRules(object):
                 'selection': None,  # {name, stage}
                 'badges': [],
                 'badges_used': [],  # remembering during ability resolution
-                'effects': [],
+                'restrictions': [],
                 'stages': {1: [], 2: [], 3: []},
                 'cards': {name: {'level': 1, 'cracked': False, 'type': card.type} for name, card in self.deck(options)}
             }
@@ -128,10 +128,6 @@ class RPSRules(object):
     def outcome_message(self, player, outcome):
         return f'{player} {outcome}'
 
-    def update_vision(self, gamestate, player):
-        for effect in filter(lambda e: e.type == 'vision', gamestate.get(player).effects):
-            effect.apply(gamestate)
-
     def response(self, game, seat, full=False):
         return self.pure_response(Box(game.options), Box(game.gamestate), game.history, seat, full)
 
@@ -144,8 +140,9 @@ class RPSRules(object):
             # this player's current view + other player's view at last keyframe
             player = ('p1', 'p2')[seat]
             other = opp(player)
-            gamestate[other] = history[-1][0][other]
-            self.update_vision(gamestate, player)
+            for name, card in gamestate[other].cards:
+                if 'revealed' not in card:
+                    gamestate[other].cards[name] = history[-1][0][other].cards[name]
 
         return gamestate
 
@@ -155,7 +152,7 @@ class RPSRules(object):
     def pure_update(self, options, gamestate, history):
         match gamestate.meta.stage:
             case 1 | 2:
-                return {'meta': {'stage': gamestate.meta.stage + 1}}
+                return {'meta': {'stage': gamestate.meta.stage + 1, 'message': ''}}
             case 3:
                 # Box(seat, stage, card)
                 p1_selection, p2_selection = self.get_selections(gamestate)
@@ -201,18 +198,19 @@ class RPSRules(object):
                         outcome = 'win'
 
                 msg = self.outcome_message(happens_first.owner, outcome)
-                ret = {'meta': {'stage': 4, 'message': msg, 'outcome': {'player': happens_first.owner, 'type': outcome}},
+                delta = {'meta': {'stage': 4, 'message': msg, 'outcome': {'player': happens_first.owner, 'type': outcome}},
                         happens_first.owner: {'selection': {'name': happens_first.rps,
                                                             'stage': self.deck(options.deck).get(happens_first.rps).start_stage}}}
                 if happens_second.owner:
-                    ret[happens_second.owner].selection = {'name': happens_second.rps,
+                    delta[happens_second.owner].selection = {'name': happens_second.rps,
                                                            'stage':  self.deck(options.deck).get(happens_second.rps).start_stage}
                 else:
-                    ret[opp(happens_first.owner)].selection = {'name': p2_selection.name, 'stage': 0}
+                    delta[opp(happens_first.owner)].selection = {'name': p2_selection.name, 'stage': 0}
 
-                return ret
+                return delta
 
             case 4:
+                delta = empty_delta
                 outcome = gamestate.meta.outcome
                 active_player = outcome.player
                 inactive_player = opp(active_player)
@@ -221,12 +219,12 @@ class RPSRules(object):
                 else:
                    if not (selection := gamestate.get(inactive_player).selection).stage:  # done
                        round = gamestate.meta.round
-                       delta =  Box({'meta': {'round': round + 1, 'stage': 1}})
+                       delta.meta = {'round': round + 1, 'stage': 1}
                        for seat in ['p1', 'p2']:
                            # in the future maybe wear-off messages for effects whose initial duration was > 1 turn
                            # can use history for this
-                           delta.get(seat).effects = [update(effect, {'duration': effect.duration - 1})
-                                                      for effect in gamestate.get(seat).effects if effect.duration != 1]
+                           delta.ga(seat).restrictions = [update(restriction, {'duration': restriction.duration - 1})
+                                      for restriction in gamestate.get(seat).restrictions if restriction.duration != 1]
 
                        delta.meta.message += f'round {round} ends'
                        return delta
@@ -236,12 +234,24 @@ class RPSRules(object):
                 ability = self.get_selections(gamestate, (resolving_player,))
 
                 # ability updates its own stage so it can skip stuff, etc
-                return ability.card.apply(gamestate, history, resolving_player)
+                return update(delta, ability.card.apply(gamestate, history, resolving_player))
 
     def move(self, game, move, seat):
-        return self.pure_move(Box(game.options), Box(game.gamestate), game.history, move, seat)
+        return self.pure_move(Box(game.options), Box(game.gamestate), game.history, seat, Box(move))
 
-    def pure_move(self, options, gamestate, history, move, seat):
+    def pure_move(self, options, gamestate, history, seat, move):
+        for restriction in gamestate.get(seat).restrictions:
+            if restriction.applies(gamestate, seat, move):
+                return {'error': restriction.source}
+
+        delta = empty_delta
+        match move.type:
+            case 'selection':
+                delta.ga(seat).selection = move.selection
+            case 'coin':
+                pass
+
+        return delta
 
 
 
