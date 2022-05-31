@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timedelta
-from utils import *
-from django.http.response import JsonResponse
+from tipr.utils import *
+from django.http.response import JsonResponse, HttpResponse
 from django.shortcuts import render
 from django.views import View
 
@@ -15,6 +15,7 @@ rules_classes = {
 class Register(View):
     def post(self, request):
         request.session['name'] = request.POST.get('name')
+        return HttpResponse()
 
 class Sit(View):
     def post(self, request):

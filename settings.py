@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure-9z%-tj+1xy^4uy(3zba3*hfcn2ew!6fli^32@@0ao$nt+r0x)f
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['159.223.175.250']
+ALLOWED_HOSTS = ['159.223.175.250', 'testserver']
 
 
 # Application definition
@@ -38,7 +38,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'babble_duel',
+    'tipr',
 ]
 
 MIDDLEWARE = [

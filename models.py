@@ -1,5 +1,5 @@
 from datetime import datetime
-from utils import *
+from tipr.utils import *
 from django.db import models
 
 

@@ -16,7 +16,13 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 
+from tipr.views import *
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('register/', Register.as_view(), name='register'),
+    path('sit/', Sit.as_view(), name='sit'),
+    path('load/', Load.as_view(), name='load'),
+    path('update/', Update.as_view(), name='update'),
+    path('submit/', Submit.as_view(), name='submit')
 ]

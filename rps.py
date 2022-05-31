@@ -1,6 +1,6 @@
 import functools
 import random
-from utils import *
+from tipr.utils import *
 
 
 effect_params = ['gamestate,', 'history,', 'resolving_player,', 'badges_apply,', 'delta,', 'badges_used']
