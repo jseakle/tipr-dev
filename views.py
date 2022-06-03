@@ -20,15 +20,16 @@ class Register(View):
 class Sit(View):
     def post(self, request):
         name = request.session.get('name')
-        seat = request.POST.get('seat')
+        seat = int(request.POST.get('seat'))
         gameid = request.POST.get('game')
         if not gameid:
             rules = rules_classes[request.POST.get('type')]
-            options = rules.STATIC_OPTIONS.copy().update(request.POST.get('options'))
+            import pdb; pdb.set_trace()
+            options = update(rules.STATIC_OPTIONS.copy(), request.POST.get('options'))
             starting_seats = [['']*options['player_count'], [False]*options['player_count']]
             starting_seats[0][seat] = name
             starting_seats[1][seat] = True
-            game = Game(type=type, player_names=starting_seats, options=options, gamestate=rules.start_state(options))
+            game = Game(type=type, people=starting_seats, options=options, gamestate=rules.start_state(options))
         else:
             game = Game.objects.get(pk=gameid)
             if game.people[0][seat]:

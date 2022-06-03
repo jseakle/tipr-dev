@@ -82,11 +82,11 @@ class RPSRules(object):
                 'badges_used': [],  # remembering during ability resolution
                 'restrictions': [],
                 'stages': {1: [], 2: [], 3: []},
-                'cards': {name: {'level': 1, 'cracked': False, 'type': card.type} for name, card in self.deck(options)}
+                'cards': {name: {'level': 1, 'cracked': False, 'type': card.type} for name, card in RPSRules.deck(options['deck'])}
             }
 
     def start_state(self, options):
-        starting_state = Box({
+        starting_state = {
             'meta': {
                 'round': 1,
                 'stage': 1,
@@ -94,13 +94,13 @@ class RPSRules(object):
             },
             'p1': self.player_state(options),
             'p2': self.player_state(options),
-        })
+        }
         return starting_state
 
     @functools.cache
     @staticmethod
     def deck(deck):
-        card_classes = RPSCard.__subclasses__.filter(lambda cls: deck in cls.decks)
+        card_classes = filter(lambda cls: deck in cls.decks, RPSCard.__subclasses__())
         return {card.name: card for card in card_classes}
 
     @functools.cache
@@ -133,7 +133,7 @@ class RPSRules(object):
 
     def pure_response(self, options, gamestate, history, seat, full):
         if full:
-            gamestate.meta.deck = self.deck_text(options.deck)
+            gamestate.meta.deck = RPSRules.deck_text(options.deck)
 
         initial = gamestate.meta.round == 1 and gamestate.meta.stage == 1
         if gamestate.meta.stage < 4 and seat != -1 and not initial:
@@ -200,10 +200,10 @@ class RPSRules(object):
                 msg = self.outcome_message(happens_first.owner, outcome)
                 delta = {'meta': {'stage': 4, 'message': msg, 'outcome': {'player': happens_first.owner, 'type': outcome}},
                         happens_first.owner: {'selection': {'name': happens_first.rps,
-                                                            'stage': self.deck(options.deck).get(happens_first.rps).start_stage}}}
+                                                            'stage': RPSRules.deck(options.deck).get(happens_first.rps).start_stage}}}
                 if happens_second.owner:
                     delta[happens_second.owner].selection = {'name': happens_second.rps,
-                                                           'stage':  self.deck(options.deck).get(happens_second.rps).start_stage}
+                                                           'stage':  RPSRules.deck(options.deck).get(happens_second.rps).start_stage}
                 else:
                     delta[opp(happens_first.owner)].selection = {'name': p2_selection.name, 'stage': 0}
 

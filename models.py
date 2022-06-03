@@ -7,9 +7,9 @@ class Game(models.Model):
 
     people = models.JSONField(default=list)  # [['p1name', 'p2name', 'spec_name', ..], [<p1ready>, <p2ready>]]
     status = models.IntegerField(default=ACTIVE)
-    type = models.CharField()
+    type = models.CharField(max_length=32)
     last_tick = models.DateTimeField(null=True)
-    next_tick = models.IntegerField()
+    next_tick = models.IntegerField(null=True)
     gamestate = models.JSONField(default=dict)
     options = models.JSONField(default=dict)
     history = models.JSONField(default=list)  # [ [<keyframe>, <event>, ..], ..]

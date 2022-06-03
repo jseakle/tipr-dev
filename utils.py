@@ -15,6 +15,8 @@ def opp(p):
 import collections.abc
 
 def update(d, u):
+    if not u:
+        return d
     for k, v in u.items():
         if v == 'del':
             del d[k]
