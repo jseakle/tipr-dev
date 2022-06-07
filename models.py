@@ -6,7 +6,7 @@ from django.db import models
 class Game(models.Model):
 
     people = models.JSONField(default=list)  # [['p1name', 'p2name', 'spec_name', ..], [<p1ready>, <p2ready>]]
-    status = models.IntegerField(default=ACTIVE)
+    status = models.IntegerField(default=CREATED)
     type = models.CharField(max_length=32)
     last_tick = models.DateTimeField(null=True)
     next_tick = models.IntegerField(null=True)
@@ -39,14 +39,14 @@ class Game(models.Model):
         else:
             duration = self.next_tick
             remaining = duration - (now - self.last_tick).seconds
-        return {
-            'timer duration': duration,
-            'time remaining': remaining,
+        return Box({
+            'timer_duration': duration,
+            'time_remaining': remaining,
             'gamestate': prepared_gamestate,  # has meta.deck = {'name': {type, stage, text}} if full
-            'chat': self.chat[-50:],
+            'chat': self.chat_log[-50:],
             'options': self.options if full else {},
             'people': self.people[0],
-        }
+        })
 
     def rewind(self, keyframes, reason):
         self.gamestate = self.history[-keyframes][1]

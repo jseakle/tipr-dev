@@ -1,6 +1,7 @@
 import collections, sys
 
 from box import Box as oBox
+CREATED = 0
 ACTIVE = 1
 PAUSED = 2
 FINISHED = 3
@@ -37,12 +38,10 @@ def update(d, u):
 
 class Box(oBox):
     def __getattr__(self, item):
-        if item not in self.__dict__:
-            if item in ['del_values']:
-                setattr(self, item, [])
-            else:
-                setattr(self, item, Box())
-            print("inventing a box")
+
+        if item in ['del_values']:
+            setattr(self, item, [])
+
         return super(Box, self).__getattr__(item)
 
     def ga(self, item):

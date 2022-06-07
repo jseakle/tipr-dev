@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure-9z%-tj+1xy^4uy(3zba3*hfcn2ew!6fli^32@@0ao$nt+r0x)f
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['159.223.175.250', 'testserver']
+ALLOWED_HOSTS = ['159.223.175.250', 'testserver', '127.0.0.1']
 
 
 # Application definition
@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django_extensions',
     'tipr',
 ]
 
@@ -45,10 +46,11 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
+    #'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'tipr.middleware.name_middleware'
 ]
 
 ROOT_URLCONF = 'tipr.urls'

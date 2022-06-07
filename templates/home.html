@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block head %}
+    {{ block.super }}
+    <title>tipr</title>
+{% endblock %}
+{% block extra_js %}
+ {{ block.super }}
+<script>
+    function register() {
+        console.log(document.getElementsByName('name')[0].value)
+        $.post('register/', {name: document.getElementsByName('name')[0].value}, function(data) {})
+        .fail(function(response) {console.log(response)});
+    }
+    function sit(seat) {
+        $.post('sit/', {'seat': seat, 'type': 'rps'}, function(data) {
+            $('#sitstat').html('sat in ' + seat)
+        }).fail(function(response) {
+            $('#sitstat').html(response)
+        });
+    }
+    var timer = new Timer({
+        fps: 2,
+        run: function () {
+            $.post('gamelist/', {}, function (response) {
+                if ('error' in response) {
+                     $('#mygames').html(response['error'])
+                } else {
+                    if (response['gamelist'] != 'U') {
+                         $('#gamelist').html( response['gamelist'])
+                    }
+                    $('#name').html(response['name'])
+                }
+            }).fail(function (response) {
+                console.log(response)
+            });
+        }
+    });
+
+    timer.start();
+</script>
+{% endblock extra_js %}
+
+{% block content %}
+{% if request.session.name %}
+    hello <div id="name">{{ request.session.name }}</div>
+{% endif %}
+what name you want?
+<textarea name="name"></textarea>
+<button name="ok" onclick="register()">ok</button><br>
+<button name="sit" onclick="sit(0)">sit0</button>
+<button name="sit" onclick="sit(1)">sit1</button>
+<div id="sitstat"></div><br>
+<div id="gamelist"></div>
+
+{% endblock %}

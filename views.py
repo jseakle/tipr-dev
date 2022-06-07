@@ -1,8 +1,11 @@
 import json
 from datetime import datetime, timedelta
+
+from django.core.cache import cache
+
 from tipr.utils import *
 from django.http.response import JsonResponse, HttpResponse
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.views import View
 
 from tipr.models import Game
@@ -11,38 +14,51 @@ from tipr.rps import RPSRules
 rules_classes = {
     'rps': RPSRules(),
 }
+reserved_names = ['empty']
 
 class Register(View):
     def post(self, request):
-        request.session['name'] = request.POST.get('name')
+        name = request.POST.get('name')
+        if not name or name in reserved_names:
+            return JsonResponse({'error': 'please choose a different name'})
+        request.session['name'] = name
+
+        next = request.session.get('redirected_from')
+        if next:
+            return redirect(next)
         return HttpResponse()
 
 class Sit(View):
     def post(self, request):
         name = request.session.get('name')
+        if not name:
+            return {'error': 'please register a name first'}
         seat = int(request.POST.get('seat'))
         gameid = request.POST.get('game')
         if not gameid:
-            rules = rules_classes[request.POST.get('type')]
-            import pdb; pdb.set_trace()
+            game_type = request.POST.get('type')
+            rules = rules_classes[game_type]
             options = update(rules.STATIC_OPTIONS.copy(), request.POST.get('options'))
-            starting_seats = [['']*options['player_count'], [False]*options['player_count']]
+            starting_seats = [['empty']*options['player_count'], [False]*options['player_count']]
             starting_seats[0][seat] = name
             starting_seats[1][seat] = True
-            game = Game(type=type, people=starting_seats, options=options, gamestate=rules.start_state(options))
+            game = Game(type=game_type, people=starting_seats, options=options, gamestate=rules.start_state(options))
         else:
             game = Game.objects.get(pk=gameid)
             if game.people[0][seat]:
                 return JsonResponse({'error': 'seat already taken'})
             game.people[0][seat] = name
             game.people[1][seat] = True
+            if all(game.people[1]):
+                game.status = ACTIVE
         game.save()
-        return JsonResponse({'game': gameid})
+        request.session['gameid'] = game.pk
+        return JsonResponse({'game': game.pk})  # unused, revisit
 
 def get_seat(game, name):
-    seat = game.people[0].index(name)  # 0 is p1
-    if seat > game.options['player_count'] - 1:
-        return -1
+    seat = -1
+    if name and name in game.people[0][:2]:
+        seat = game.people[0].index(name)  # 0 is p1
     return seat
 
 class Load(View):
@@ -58,15 +74,38 @@ class Load(View):
 
 class Update(View):
     def post(self, request):
+
         now = datetime.now()
         name = request.session.get('name')
-        game = Game.objects.filter(people__contains=name, status=ACTIVE).get()
+        id = request.session.get('gameid')
+
+        if id:
+            game = Game.objects.filter(pk=id)
+        else:
+            game = None
+        if not game:
+            return JsonResponse({'error': 'This game does not exist'})
+        game = game.get()
+
         rules = rules_classes[game.type]
         seat = get_seat(game, name)
-        if seat is -1:
-            return JsonResponse(game.response(rules.response(game, seat)))
 
-        if game.next_tick is -1:
+        def render_gameboard():
+            response = Box()
+            gameboard_context = game.response(rules.response(game, seat), now)
+            gameboard_context.seat = ('p1', 'p2', 'spectating')[seat]
+            response.gameboard = render(request, 'gameboard.html', gameboard_context).content.decode()
+            response.timer = render(request, 'timer.html', gameboard_context).content.decode()
+            if response.gameboard == cache.get(f'{name}_gameboard'):
+                response.gameboard = 'U'
+            else:
+                cache.set(f'{name}_gameboard', response.gameboard)
+            return response
+
+        if seat == -1 or game.status == FINISHED:
+            return JsonResponse(render_gameboard())
+
+        if game.next_tick == -1:
             game.next_tick = rules.next_tick(game.gamestate)
             game.save()
 
@@ -86,12 +125,14 @@ class Update(View):
                         game.event('time', delta, now)
                 except Exception as e:
                     message = f'error doing timed update: {e}\nresetting to {keyframe_name} {prev}'
+                    game.chat('system', message, now)
                     game.rewind(1, message)
-                    return JsonResponse(game.response(rules.response(game, seat), now))
+                    return JsonResponse(render_gameboard())
             else:
                 game.people[1][seat] = True
                 game.save()
-        return JsonResponse(game.response(rules.response(game, seat), now))
+
+        return JsonResponse(render_gameboard())
 
 class Submit(View):
     def post(self, request):
@@ -108,3 +149,34 @@ class Submit(View):
         update(game.gamestate, delta)
         game.save()
         return JsonResponse(game.response(rules.repsonse(game, seat), now))
+
+
+class Home(View):
+    def get(self, request):
+        return render(request, 'home.html')
+
+class GamePage(View):
+    def get(self, request, id):
+        game = Game.objects.get(pk=id)
+        request.session['gameid'] = game.pk
+        return render(request, 'game.html', {'game': game})
+
+class GameList(View):
+    def post(self, request):
+        name = request.session.get('name')
+        response = Box()
+        response.name = name
+        gamelist_context = Box()
+        gamelist_context.my_games = []
+        gamelist_context.other_games = []
+        for game in Game.objects.filter(status__lt=FINISHED):
+            if name and name in game.people[0]:
+                gamelist_context.my_games.append(game)
+            else:
+                gamelist_context.other_games.append(game)
+        response.gamelist = render(request, 'gamelist.html', gamelist_context).content.decode()
+        if response.gamelist == cache.get(f'{name}_gamelist'):
+            response.gamelist = 'U'
+        else:
+            cache.set(f'{name}_gamelist', response.gamelist)
+        return JsonResponse(response)

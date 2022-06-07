@@ -1,0 +1,9 @@
+My Games<br>
+{% for game in my_games %}
+    <a href="game/{{ game.pk }}">{{ game.people.0.0 }} vs {{ game.people.0.1 }}</a><br>
+{% endfor %}
+<hr style="width:40%">
+Other Games<br>
+{% for game in other_games %}
+    <a href="game/{{ game.pk }}">{{ game.people.0.0 }} vs {{ game.people.0.1 }}</a><br>
+{% endfor %}

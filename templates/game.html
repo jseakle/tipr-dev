@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block head %}
+    {{ block.super }}
+    <title>tipr</title>
+{% endblock %}
+{% block extra_js %}
+ {{ block.super }}
+<script>
+    function register() {
+        console.log(document.getElementsByName('name')[0].value)
+        $.post('register/', {name: document.getElementsByName('name')[0].value}, function(data) {})
+        .fail(function(response) {console.log(response)});
+    }
+    function sit(seat) {
+        $.post('sit/', {seat: seat, type: 'rps'}, function(data) {
+            $('#sitstat').html('sat in ' + seat)
+        }).fail(function(response) {
+            $('#sitstat').html(response)
+        });
+    }
+    var timer = new Timer({
+        fps: 2,
+        run: function () {
+            $.post('../update/', {}, function (response) {
+                if ('error' in response) {
+                    $('#game').html(response['error'])
+                } else {
+                    if (response['gameboard'] != 'U') {
+                         $('#gameboard').html( response['gameboard'])
+                    }
+                     $('#timer').html( response['timer'])
+                    console.log(response)
+                }
+            }).fail(function (response) {
+                console.log(response)
+            });
+        }
+    });
+
+    timer.start();
+</script>
+{% endblock extra_js %}
+
+{% block content %}
+<button name="sit" onclick="sit(0)">sit0</button>
+<button name="sit" onclick="sit(1)">sit1</button>
+<div id="sitstat"></div>
+<div id="timer"></div>
+<div id="gameboard"></div>
+{% endblock content %}

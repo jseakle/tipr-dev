@@ -237,6 +237,8 @@ class RPSRules(object):
                 return update(delta, ability.card.apply(gamestate, history, resolving_player))
 
     def move(self, game, move, seat):
+        if not game.status == 'ACTIVE':
+            return {'error': f'game is {game.status}'}
         return self.pure_move(Box(game.options), Box(game.gamestate), game.history, seat, Box(move))
 
     def pure_move(self, options, gamestate, history, seat, move):
