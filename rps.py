@@ -1,89 +1,32 @@
 import functools
 import random
 from tipr.utils import *
-
-
-effect_params = ['gamestate,', 'history,', 'resolving_player,', 'badges_apply,', 'delta,', 'badges_used']
-class RPSCard(object):
-
-    def __init__(self):
-        # card stages count down; 0 means we're done and won't call apply again
-        self.stages = Box({
-            1: self.level_up,
-            2: self.level_damage,
-        })
-
-    def apply(self, gamestate, history, resolving_player):
-
-        stage = gamestate.get(resolving_player).selection.stage
-        delta = Box({resolving_player: {'selection': {'stage': stage - 1}}})
-
-        badges_apply = gamestate.meta.outcome.type == 'win' and gamestate.meta.outcome.player == resolving_player
-        badges_used = []
-        # possibly _the_ most cursed line of code i've ever written
-        inject(**{param: locals()[param] for param in effect_params})(self.stages[stage])
-        self.stages[stage]()
-        delta.get(resolving_player).badges_used = list(set(gamestate.get(resolving_player).badges_used + badges_used))
-
-        if stage == 1:
-            delta.ga(resolving_player).badges = list(set(gamestate.get(resolving_player).badges) - set(badges_used))
-            delta.ga(resolving_player).badges_used = []
-
-        return delta
-
-    def level_up(self):
-        if badges_apply:
-            cardname = gamestate.get(resolving_player).selection.name
-            card = gamestate.get(resolving_player).cards.get(cardname)
-            card.level += 1
-            card.cracked = False
-            update(delta, {resolving_player: {'cards': {cardname: card}}})
-            delta.meta.message = f'{cardname} levels up'
-            for badge in self.get_badges(gamestate, 'level_up'):
-                if badge.apply(gamestate, delta):
-                    badges_used.append(badge)
-
-
-    def level_damage(self):
-        if badges_apply:
-            other = gamestate.get(opp(resolving_player))
-            cardname = other.selection.name
-            card = other.cards.get(cardname)
-
-            if card.cracked:
-                card.level=max(0, card.level - 1)
-                card.cracked=False
-                delta.meta.message = f'{cardname} levels down'
-            else:
-                card.cracked = True
-                delta.meta.message = f'{cardname} cracks'
-            update(delta, {other: {'cards': {cardname: card}}})
-            for badge in self.get_badges(gamestate, 'level_damage'):
-                if badge.apply(gamestate, delta):
-                    badges_used.append(badge)
+from rps_cards import *
 
 
 
 class RPSRules(object):
 
-    STATIC_OPTIONS = {'player_count': 2,
-                      'deck': 'basic',  # card classes tagged with deck names
-                      }
+    DEFAULT_OPTIONS = {
+        'timer': 10,
+        'player_count': 2,
+        'deck': 'basic',  # card classes tagged with deck names
+    }
 
     def player_state(self, options):
         STARTING_HP = 250
         MAX_HP = STARTING_HP / .75
         return {
-                'max_hp': MAX_HP,
-                'hp': STARTING_HP,
-                'coins': 0,
-                'selection': None,  # {name, stage}
-                'badges': [],
-                'badges_used': [],  # remembering during ability resolution
-                'restrictions': [],
-                'stages': {1: [], 2: [], 3: []},
-                'cards': {name: {'level': 1, 'cracked': False, 'type': card.type} for name, card in RPSRules.deck(options['deck'])}
-            }
+            'max_hp': MAX_HP,
+            'hp': STARTING_HP,
+            'coins': 0,
+            'selection': None,  # {name, ability_number, stage}. Used for tracking in stage 4.
+            'badges': [],
+            'badges_used': [],  # remembering during ability resolution
+            'restrictions': [],
+            'stages': {1: [], 2: [], 3: []},
+            'cards': {name: {'level': 1, 'cracked': False, 'type': card.type} for name, card in RPSRules.deck(options['deck'])}
+        }
 
     def start_state(self, options):
         starting_state = {
@@ -114,7 +57,7 @@ class RPSRules(object):
             found = False
             for stage in (1, 2, 3):
                 for action in gamestate[seat].stages[stage]:
-                    if action.kind is 'RPS':
+                    if action.kind == 'RPS':
                         found = True
                         ret.append(Box(seat=seat, stage=stage, name=action.name,
                                        card=gamestate[seat].cards[action.name]))  # modifiers go in here too
@@ -164,7 +107,7 @@ class RPSRules(object):
                         happens_second.update(owner='p2', rps='Truce')
                         outcome = 'truce'
                     case ({**w}, None) | (None, {**w}):
-                        happens_first.update(owner='p2' if w.seat is 'p1' else 'p1', rps='PaciveIncome')
+                        happens_first.update(owner='p2' if w.seat == 'p1' else 'p1', rps='PaciveIncome')
                         happens_second.update(owner=w.seat, rps=w.name,
                                               level=gamestate[w.seat].cards[w.name].level)
                         outcome = 'default'
@@ -199,13 +142,16 @@ class RPSRules(object):
 
                 msg = self.outcome_message(happens_first.owner, outcome)
                 delta = {'meta': {'stage': 4, 'message': msg, 'outcome': {'player': happens_first.owner, 'type': outcome}},
-                        happens_first.owner: {'selection': {'name': happens_first.rps,
-                                                            'stage': RPSRules.deck(options.deck).get(happens_first.rps).start_stage}}}
+                        happens_first.owner: {'selection':
+                              {'name': happens_first.rps,
+                               'timing': happens_first.timing,
+                               'ability': len(RPSRules.deck(options.deck).get(happens_first.rps).ability_order) + 2}}}
                 if happens_second.owner:
-                    delta[happens_second.owner].selection = {'name': happens_second.rps,
-                                                           'stage':  RPSRules.deck(options.deck).get(happens_second.rps).start_stage}
-                else:
-                    delta[opp(happens_first.owner)].selection = {'name': p2_selection.name, 'stage': 0}
+                    delta[happens_second.owner].selection = \
+                        {'name': happens_second.rps,
+                         'ability':  len(RPSRules.deck(options.deck).get(happens_second.rps).ability_order) + 2}
+                else:  # it won't happen, but we might need the name
+                    delta[opp(happens_first.owner)].selection = {'name': p2_selection.name, 'ability': 0}
 
                 return delta
 
@@ -214,10 +160,10 @@ class RPSRules(object):
                 outcome = gamestate.meta.outcome
                 active_player = outcome.player
                 inactive_player = opp(active_player)
-                if (selection := gamestate.get(active_player).selection).stage:
+                if (selection := gamestate.get(active_player).selection).ability:
                     resolving_player = active_player
                 else:
-                   if not (selection := gamestate.get(inactive_player).selection).stage:  # done
+                   if not (selection := gamestate.get(inactive_player).selection).ability:  # done
                        round = gamestate.meta.round
                        delta.meta = {'round': round + 1, 'stage': 1}
                        for seat in ['p1', 'p2']:
@@ -231,10 +177,9 @@ class RPSRules(object):
                    else:
                        resolving_player = inactive_player
 
-                ability = self.get_selections(gamestate, (resolving_player,))
-
-                # ability updates its own stage so it can skip stuff, etc
-                return update(delta, ability.card.apply(gamestate, history, resolving_player))
+                # card updates its own stage so it can skip stuff, etc
+                card = self.deck(options.deck)[selection]
+                return update(delta, card.apply(gamestate, history, resolving_player))
 
     def move(self, game, move, seat):
         if not game.status == 'ACTIVE':
@@ -254,6 +199,12 @@ class RPSRules(object):
                 pass
 
         return delta
+
+    def next_tick(self, game):
+        if game.gamestate.meta.stage <= 3:
+            return game.options['timer']
+        else:
+            return 2
 
 
 

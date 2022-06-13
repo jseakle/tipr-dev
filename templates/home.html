@@ -7,7 +7,9 @@
 {% block extra_js %}
  {{ block.super }}
 <script>
+    var load = true;
     function register() {
+        load = true;
         console.log(document.getElementsByName('name')[0].value)
         $.post('register/', {name: document.getElementsByName('name')[0].value}, function(data) {})
         .fail(function(response) {console.log(response)});
@@ -22,7 +24,10 @@
     var timer = new Timer({
         fps: 2,
         run: function () {
-            $.post('gamelist/', {}, function (response) {
+            if($('#gameboard').is(':empty') ) {
+                load = true;
+            }
+            $.post('gamelist/', {load: load}, function (response) {
                 if ('error' in response) {
                      $('#mygames').html(response['error'])
                 } else {
@@ -34,6 +39,7 @@
             }).fail(function (response) {
                 console.log(response)
             });
+            load = false;
         }
     });
 

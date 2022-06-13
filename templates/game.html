@@ -6,22 +6,27 @@
 {% block extra_js %}
  {{ block.super }}
 <script>
+    var load = true;
     function register() {
+        load = true;
         console.log(document.getElementsByName('name')[0].value)
         $.post('register/', {name: document.getElementsByName('name')[0].value}, function(data) {})
         .fail(function(response) {console.log(response)});
     }
     function sit(seat) {
-        $.post('sit/', {seat: seat, type: 'rps'}, function(data) {
+        $.post('../sit/', {seat: seat, type: 'rps'}, function(data) {
             $('#sitstat').html('sat in ' + seat)
         }).fail(function(response) {
             $('#sitstat').html(response)
         });
     }
     var timer = new Timer({
-        fps: 2,
+        fps: .5,
         run: function () {
-            $.post('../update/', {}, function (response) {
+            if($('#gameboard').is(':empty')) {
+                load = true;
+            }
+            $.post('../update/', {load: load}, function (response) {
                 if ('error' in response) {
                     $('#game').html(response['error'])
                 } else {
@@ -34,6 +39,7 @@
             }).fail(function (response) {
                 console.log(response)
             });
+            load = false;
         }
     });
 

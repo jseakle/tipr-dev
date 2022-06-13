@@ -45,7 +45,10 @@ class Box(oBox):
         return super(Box, self).__getattr__(item)
 
     def ga(self, item):
-        return self.__getattr__(item)
+        try:
+            return self.__getattr__(item)
+        except KeyError:
+            return None
 
 
 empty_delta = Box({'meta': {'message': ''}})

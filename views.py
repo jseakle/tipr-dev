@@ -38,7 +38,7 @@ class Sit(View):
         if not gameid:
             game_type = request.POST.get('type')
             rules = rules_classes[game_type]
-            options = update(rules.STATIC_OPTIONS.copy(), request.POST.get('options'))
+            options = update(rules.DEFAULT_OPTIONS.copy(), request.POST.get('options'))
             starting_seats = [['empty']*options['player_count'], [False]*options['player_count']]
             starting_seats[0][seat] = name
             starting_seats[1][seat] = True
@@ -96,41 +96,39 @@ class Update(View):
             gameboard_context.seat = ('p1', 'p2', 'spectating')[seat]
             response.gameboard = render(request, 'gameboard.html', gameboard_context).content.decode()
             response.timer = render(request, 'timer.html', gameboard_context).content.decode()
-            if response.gameboard == cache.get(f'{name}_gameboard'):
+            if not request.POST.get('load') and response.gameboard == cache.get(f'{name}_gameboard'):
                 response.gameboard = 'U'
             else:
                 cache.set(f'{name}_gameboard', response.gameboard)
             return response
 
-        if seat == -1 or game.status == FINISHED:
+        if seat == -1 or game.status != ACTIVE:
             return JsonResponse(render_gameboard())
 
-        if game.next_tick == -1:
-            game.next_tick = rules.next_tick(game.gamestate)
+        if not game.next_tick:
+            game.next_tick = rules.next_tick(game)
             game.save()
 
         if game.last_tick and now - game.last_tick > timedelta(seconds=game.next_tick):
-            if all(game.people[1]):
-                keyframe_name = rules.keyframe_name
-                prev = game.gamestate.meta[keyframe_name]
-                try:
-                    delta = rules.do_update(game)
-                    update(game.gamestate, delta)
-                    if message := game.gamestate['meta']['message']:
-                        game.chat('system', message, now)
-
-                    if game.gamestate['meta'][keyframe_name] != prev:
-                        game.keyframe()
-                    else:
-                        game.event('time', delta, now)
-                except Exception as e:
-                    message = f'error doing timed update: {e}\nresetting to {keyframe_name} {prev}'
+            keyframe_name = rules.keyframe_name
+            prev = game.gamestate.meta[keyframe_name]
+            try:
+                delta = rules.do_update(game)
+                update(game.gamestate, delta)
+                game.last_tick = now
+                game.next_tick = rules.next_tick(game)
+                if message := game.gamestate['meta']['message']:
                     game.chat('system', message, now)
-                    game.rewind(1, message)
-                    return JsonResponse(render_gameboard())
-            else:
-                game.people[1][seat] = True
-                game.save()
+
+                if game.gamestate['meta'][keyframe_name] != prev:
+                    game.keyframe()
+                else:
+                    game.event('time', delta, now)
+            except Exception as e:
+                message = f'error doing timed update: {e}\nresetting to {keyframe_name} {prev}'
+                game.chat('system', message, now)
+                game.rewind(1, message)
+                return JsonResponse(render_gameboard())
 
         return JsonResponse(render_gameboard())
 
@@ -174,8 +172,9 @@ class GameList(View):
                 gamelist_context.my_games.append(game)
             else:
                 gamelist_context.other_games.append(game)
+
         response.gamelist = render(request, 'gamelist.html', gamelist_context).content.decode()
-        if response.gamelist == cache.get(f'{name}_gamelist'):
+        if not request.POST.get('load') and response.gamelist == cache.get(f'{name}_gamelist'):
             response.gamelist = 'U'
         else:
             cache.set(f'{name}_gamelist', response.gamelist)
