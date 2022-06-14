@@ -21,6 +21,12 @@ def update(d, u):
     for k, v in u.items():
         if v == 'del':
             del d[k]
+        elif type(v) is tuple:
+            match v[0]:
+                case 'add':
+                    d[k] += v[1]
+                case 'mul':
+                    d[k] *= v[1]
         elif isinstance(d[k], list):
             if 'deletes' in v:
                 d[k] = filter(lambda i, x: i not in v['deletes'], enumerate(d[k]))
@@ -37,18 +43,21 @@ def update(d, u):
 
 
 class Box(oBox):
-    def __getattr__(self, item):
+    def __getattr__(self, name):
 
         if item in ['del_values']:
-            setattr(self, item, [])
+            setattr(self, name, [])
 
-        return super(Box, self).__getattr__(item)
+        return super(Box, self).__getattr__(name)
 
-    def ga(self, item):
+    # enable assignment to possibly new fields even when a key on the path is a variable
+    # box.get(var).foo = 5 doesn't work
+    def ga(self, name):
         try:
-            return self.__getattr__(item)
+            return self.__getattr__(name)
         except KeyError:
-            return None
+            setattr(self, name, {})
+            return self.__getattr__(name)
 
 
 empty_delta = Box({'meta': {'message': ''}})

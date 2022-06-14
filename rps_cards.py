@@ -1,6 +1,6 @@
 from tipr.utils import *
 
-effect_params = ['gamestate', 'history', 'resolving_player', 'other', 'timing_bonus', 'level', 'badges_apply', 'delta', 'badges_used']
+effect_params = ['gamestate', 'history', 'seat', 'player', 'other', 'timing_bonus', 'level', 'badges_apply', 'delta', 'badges_used']
 class RPSCard(object):
 
     # called on every subclass
@@ -12,39 +12,48 @@ class RPSCard(object):
         }), {3+i:x for i, x in enumerate(reversed(cls.ability_order))})
 
     @classmethod
-    def apply(cls, gamestate, history, resolving_player):
-        selection = gamestate.get(resolving_player).selection
+    def get_badges(cls, player, type):
+        badges = map(lambda name, args: next(filter(lambda c: c.name == name, Badge.__subclasses__()))(args), player.badges)
+        return filter(lambda badge: type in badge.types, badges)
+
+    @classmethod
+    def apply(cls, gamestate, history, seat):
+        selection = gamestate.get(seat).selection
         ability = selection.ability
         timing_bonus = selection.timing
-        level = gamestate.get(resolving_player).cards.get(ability).level
-        other = gamestate.get(opp(resolving_player))
-        delta = Box({resolving_player: {'selection': {'ability': ability - 1}}})
+        player = gamestate.get(seat)
+        level = player.cards.get(ability).level
+        other = gamestate.get(opp(seat))
+        delta = Box({seat: {'selection': {'ability': ability - 1}}})
 
-        badges_apply = gamestate.meta.outcome.type == 'win' and gamestate.meta.outcome.player == resolving_player
-        badges_used = []
+        badges_apply = gamestate.meta.outcome.type == 'win' and gamestate.meta.outcome.player == seat
         # possibly _the_ most cursed line of code i've ever written
         inject(**{param: locals()[param] for param in effect_params})(cls.stages[ability])
-        cls.abilities[ability]()
-        delta.get(resolving_player).badges_used = list(set(gamestate.get(resolving_player).badges_used + badges_used))
+        badge_types = list(cls.abilities[ability]())
+        badges_used = []
+        for badge_type in badge_types:
+            for badge in cls.get_badges(player, badge_type):
+                if badge.apply(gamestate, delta):
+                    badges_used.append(badge)
+        delta.get(seat).badges_used = list(set(gamestate.get(seat).badges_used + badges_used))
 
         if ability == 1:
-            delta.ga(resolving_player).badges = list(set(gamestate.get(resolving_player).badges) - set(badges_used))
-            delta.ga(resolving_player).badges_used = []
+            delta.ga(seat).badges = list(set(gamestate.get(seat).badges) - set(badges_used))
+            delta.ga(seat).badges_used = []
 
         return delta
 
     @classmethod
     def level_up(cls):
         if badges_apply:
-            cardname = gamestate.get(resolving_player).selection.name
-            card = gamestate.get(resolving_player).cards.get(cardname)
+            cardname = gamestate.get(seat).selection.name
+            card = gamestate.get(seat).cards.get(cardname)
             card.level += 1
             card.cracked = False
-            update(delta, {resolving_player: {'cards': {cardname: card}}})
+            update(delta, {seat: {'cards': {cardname: card}}})
             delta.meta.message = f'{cardname} levels up'
-            for badge in cls.get_badges(gamestate, 'level_up'):
-                if badge.apply(gamestate, delta):
-                    badges_used.append(badge)
+            return 'level_up'
+
 
     @classmethod
     def level_damage(cls):
@@ -59,10 +68,8 @@ class RPSCard(object):
             else:
                 card.cracked = True
                 delta.meta.message = f'{cardname} cracks'
-            update(delta, {other: {'cards': {cardname: card}}})
-            for badge in cls.get_badges(gamestate, 'level_damage'):
-                if badge.apply(gamestate, delta):
-                    badges_used.append(badge)
+            update(delta, {opp(seat): {'cards': {cardname: card}}})
+            return 'level_damage'
 
 
 class Pebble(RPSCard):
@@ -74,10 +81,11 @@ class Pebble(RPSCard):
         dmg = 15
         if timing_bonus == 2:
             dmg += 3 * level
-        update(delta, {other: {'hp': gamestate.get(other).hp - dmg}})
-        for badge in cls.get_badges(gamestate, 'damage'):
-            if badge.apply(gamestate, delta):
-                badges_used.append(badge)
+        update(delta, {opp(seat): {'hp': ('add', -dmg)}})
+        return 'damage'
+
+    def badge(cls):
+        update(delta, {seat: {'badges': {'ins': {'dmg_multiplier': 2}}}})
 
 for cls in RPSCard.__subclasses__():
     RPSCard.init(cls)
