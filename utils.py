@@ -1,4 +1,5 @@
 import collections, sys
+from itertools import chain
 
 from box import Box as oBox
 CREATED = 0
@@ -15,18 +16,46 @@ def opp(p):
 
 import collections.abc
 
-def update(d, u):
+
+# handling numbers:
+# update = False, ie, we're working on a delta
+# existing, new:
+#   nothing, number or tuple -> new value
+#   number, number -> new number
+#   number, tuple -> error. the idea is that numbers are for meta stuff and tuples are for gamestate vals
+#   tuple, number -> error
+#   (str, num), tuple -> (old tuple, new tuple)
+#   (tup, tup), tuple -> (tup, tup, new tuple)
+# update = True
+#   nothing, number -> number
+#   nothing, tuple -> tupleops(0). maybe. the idea is that this could handle "counters" in the future
+#   number, number -> new number
+#   number, tuple -> tupleops(number)
+def update(d, u, update_numbers=False):
     if not u:
         return d
     for k, v in u.items():
         if v == 'del':
             del d[k]
         elif type(v) is tuple:
-            match v[0]:
-                case 'add':
-                    d[k] += v[1]
-                case 'mul':
-                    d[k] *= v[1]
+            if update_numbers:
+                if k in d:
+                    d[k] = apply_numeric_modifiers(d[k], v)
+                else:
+                    d[k] = apply_numeric_modifiers(0, v)
+            else:
+                if k not in d:
+                    d[k] = v
+                else:
+                    match d[k]:
+                        case (str(), _) as t:
+                            d[k] = (t, v)
+                        case (tuple(), _) as t:
+                            d[k] = tuple(chain(t, (v,)))
+                        case _:
+                            raise RuntimeError(f"Don't put tuples on {type(d[k])}s")
+        elif k in d and type(d[k]) is tuple:
+            raise RuntimeError(f"Don't put {type(v)} on tuples")
         elif isinstance(d[k], list):
             if 'deletes' in v:
                 d[k] = filter(lambda i, x: i not in v['deletes'], enumerate(d[k]))
