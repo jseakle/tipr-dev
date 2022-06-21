@@ -16,6 +16,14 @@ def opp(p):
 
 import collections.abc
 
+mod_table = {
+    'add': lambda x, y: x + y,
+    'mul': lambda x, y: x * y,
+}
+def apply_numeric_modifiers(value, mods):
+    for mod in mods:
+        value = mod_table[mod[0]](value, mod[1])
+    return value
 
 # handling numbers:
 # update = False, ie, we're working on a delta

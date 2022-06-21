@@ -10,6 +10,7 @@ class RPSCard(object):
             1: cls.level_up,
             2: cls.level_damage,
         }), {3+i:x for i, x in enumerate(reversed(cls.ability_order))})
+        cls.abilities[i+1] = cls.start
 
     @classmethod
     def get_badges(cls, player, type):
@@ -24,12 +25,13 @@ class RPSCard(object):
         player = gamestate.get(seat)
         level = player.cards.get(ability).level
         other = gamestate.get(opp(seat))
-        delta = Box({seat: {'selection': {'ability': ability - 1}}})
+        delta = Box({seat: {'selection': {'ability_number': ability - 1}}})
 
         badges_apply = gamestate.meta.outcome.type == 'win' and gamestate.meta.outcome.player == seat
         # possibly _the_ most cursed line of code i've ever written
         inject(**{param: locals()[param] for param in effect_params})(cls.stages[ability])
-        badge_types = list(cls.abilities[ability]())
+        # one-type abilities can be named after their type instead of returning it
+        badge_types = list(cls.abilities[ability]() or cls.abilities[ability].__name__)
         badges_used = []
         for badge_type in badge_types:
             for badge in cls.get_badges(player, badge_type):
@@ -37,11 +39,16 @@ class RPSCard(object):
                     badges_used.append(badge)
         delta.get(seat).badges_used = list(set(gamestate.get(seat).badges_used + badges_used))
 
+        # only use up badges after they've had a chance to apply to each stage
         if ability == 1:
             delta.ga(seat).badges = list(set(gamestate.get(seat).badges) - set(badges_used))
             delta.ga(seat).badges_used = []
 
         return delta
+
+    @classmethod
+    def start(cls):
+        return 'start'
 
     @classmethod
     def level_up(cls):
@@ -75,17 +82,38 @@ class RPSCard(object):
 class Pebble(RPSCard):
 
     type = ROCK
-    ability_order = []
+    ability_order = ['damage', 'badge']
 
     def damage(cls):
         dmg = 15
         if timing_bonus == 2:
             dmg += 3 * level
+        if timing_bonus == 0:
+            update(delta, {seat: {'selection': {'ability_number': ('add', -1)}}})
         update(delta, {opp(seat): {'hp': ('add', -dmg)}})
-        return 'damage'
 
     def badge(cls):
         update(delta, {seat: {'badges': {'ins': {'dmg_multiplier': 2}}}})
+
+
+class Napkin(RPSCard):
+
+    type = PAPER
+    ability_order = ['health', 'damage', 'badge']
+
+    def health(cls):
+        update(delta, {seat: {'hp': ('add', level)}})
+
+    def damage(cls):
+        other_ability = other.selection.name
+        other_level = other.cards.get(other_ability).level
+        update(delta, {opp(seat): {'hp': ('add', -other_level)}})
+
+    def badge(cls):
+        update(delta, {seat: {'badges': {'ins': {'shield': 1}}}})
+
+
+
 
 for cls in RPSCard.__subclasses__():
     RPSCard.init(cls)
