@@ -11,19 +11,24 @@ ROCK = 0
 PAPER = 1
 SCISSORS = 2
 
+seats = ('p1', 'p2')
+
 def opp(p):
-    return ('p1', 'p2')[p=='p1']
+    return seats[p=='p1']
 
 import collections.abc
 
+# apply all ops to the base modifier, then apply the final modifier
+# e.g. starting hp 15, -2 base dmg, -1, x2 = -6 -> 9hp
 mod_table = {
     'add': lambda x, y: x + y,
     'mul': lambda x, y: x * y,
 }
 def apply_numeric_modifiers(value, mods):
+    final_mod = 0
     for mod in mods:
-        value = mod_table[mod[0]](value, mod[1])
-    return value
+        final_mod = mod_table[mod[0]](final_mod, mod[1])
+    return value + final_mod
 
 # handling numbers:
 # update = False, ie, we're working on a delta
@@ -78,11 +83,14 @@ def update(d, u, update_numbers=False):
             d[k] = v
     return d
 
+def mzip(*lists):
+    max_len = max(map(len, lists))
+    return zip(*(l + [None] * (max_len - len(l)) for l in lists))
 
 class Box(oBox):
     def __getattr__(self, name):
 
-        if item in ['del_values']:
+        if name in ['del_values']:
             setattr(self, name, [])
 
         return super(Box, self).__getattr__(name)

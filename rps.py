@@ -51,7 +51,7 @@ class RPSRules(object):
     def deck_text(deck):
         return {name: {'type': card.type, 'stage': card.stage, 'text': card.text} for name, card in RPSRules.deck(deck)}
 
-    def get_selections(self, gamestate, seats=('p1', 'p2')):
+    def get_selections(self, gamestate, seats=seats):
         ret = []
         for seat in seats:
             found = False
@@ -81,7 +81,7 @@ class RPSRules(object):
         initial = gamestate.meta.round == 1 and gamestate.meta.stage == 1
         if gamestate.meta.stage < 4 and seat != -1 and not initial:
             # this player's current view + other player's view at last keyframe
-            player = ('p1', 'p2')[seat]
+            player = seats[seat]
             other = opp(player)
             for name, card in gamestate[other].cards:
                 if 'revealed' not in card:
@@ -166,7 +166,7 @@ class RPSRules(object):
                    if not (selection := gamestate.get(inactive_player).selection).ability:  # done
                        round = gamestate.meta.round
                        delta.meta = {'round': round + 1, 'stage': 1}
-                       for seat in ['p1', 'p2']:
+                       for seat in seats:
                            # in the future maybe wear-off messages for effects whose initial duration was > 1 turn
                            # can use history for this
                            delta.ga(seat).restrictions = [update(restriction, {'duration': restriction.duration - 1})

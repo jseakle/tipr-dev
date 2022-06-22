@@ -1,5 +1,19 @@
 from tipr.utils import *
 
+class Badge(object):
+    def __init__(self, arg):
+        self.arg = arg
+
+class DmgMultiplier(Badge):
+    types = 'damage'
+
+    def apply(self, gamestate, delta):
+        for seat in seats:
+            if seat in delta:
+                if 'hp' in delta.get(seat):
+                    update(delta, {seat: {'hp': ('mul', 2)}})
+
+
 effect_params = ['gamestate', 'history', 'seat', 'player', 'other', 'timing_bonus', 'level', 'badges_apply', 'delta', 'badges_used']
 class RPSCard(object):
 
@@ -14,7 +28,7 @@ class RPSCard(object):
 
     @classmethod
     def get_badges(cls, player, type):
-        badges = map(lambda name, args: next(filter(lambda c: c.name == name, Badge.__subclasses__()))(args), player.badges)
+        badges = map(lambda name, args: next(filter(lambda c: c.__name__ == name, Badge.__subclasses__()))(args), *mzip(*player.badges))
         return filter(lambda badge: type in badge.types, badges)
 
     @classmethod
@@ -93,7 +107,7 @@ class Pebble(RPSCard):
         update(delta, {opp(seat): {'hp': ('add', -dmg)}})
 
     def badge(cls):
-        update(delta, {seat: {'badges': {'ins': {'dmg_multiplier': 2}}}})
+        update(delta, {seat: {'badges': {'ins': ['DmgMultiplier', 2]}}})
 
 
 class Napkin(RPSCard):
@@ -110,7 +124,7 @@ class Napkin(RPSCard):
         update(delta, {opp(seat): {'hp': ('add', -other_level)}})
 
     def badge(cls):
-        update(delta, {seat: {'badges': {'ins': {'shield': 1}}}})
+        update(delta, {seat: {'shields': {'add', 1}}})
 
 
 
