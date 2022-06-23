@@ -23,6 +23,7 @@ class RPSRules(object):
             'selection': None,  # {name, ability_number, stage}. Used for tracking in stage 4.
             'badges': [],
             'badges_used': [],  # remembering during ability resolution
+            'shields': 0,
             'restrictions': [],
             'stages': {1: [], 2: [], 3: []},
             'cards': {name: {'level': 1, 'cracked': False, 'type': card.type} for name, card in RPSRules.deck(options['deck'])}
@@ -34,6 +35,7 @@ class RPSRules(object):
                 'round': 1,
                 'stage': 1,
                 'outcome': {'player': None, 'type': None},  # 'win', 'ambush', 'default', 'draw', 'truce'
+                'message': ['Game Start']
             },
             'p1': self.player_state(options),
             'p2': self.player_state(options),

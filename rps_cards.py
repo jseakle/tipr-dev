@@ -12,6 +12,8 @@ class DmgMultiplier(Badge):
             if seat in delta:
                 if 'hp' in delta.get(seat):
                     update(delta, {seat: {'hp': ('mul', 2)}})
+                    total = combine_numeric_modifiers(delta.get(seat).hp)
+                    add_message(delta, f"DmgMultiplier({self.arg}) applies. {total}")
 
 
 effect_params = ['gamestate', 'history', 'seat', 'player', 'other', 'timing_bonus', 'level', 'badges_apply', 'delta', 'badges_used']
@@ -53,6 +55,11 @@ class RPSCard(object):
                     badges_used.append(badge)
         delta.get(seat).badges_used = list(set(gamestate.get(seat).badges_used + badges_used))
 
+        if 'damage' in badge_types and other.shields > 0:
+            delta.ga(opp(seat)).shields = other.shields - 1
+            update(delta, {opp(seat): {'hp': ('mul', 0)}})
+            add_message(delta, "Shield used")
+
         # only use up badges after they've had a chance to apply to each stage
         if ability == 1:
             delta.ga(seat).badges = list(set(gamestate.get(seat).badges) - set(badges_used))
@@ -72,7 +79,7 @@ class RPSCard(object):
             card.level += 1
             card.cracked = False
             update(delta, {seat: {'cards': {cardname: card}}})
-            delta.meta.message = f'{cardname} levels up'
+            add_message(delta, f'{cardname} levels up')
             return 'level_up'
 
 
@@ -85,10 +92,10 @@ class RPSCard(object):
             if card.cracked:
                 card.level=max(0, card.level - 1)
                 card.cracked=False
-                delta.meta.message = f'{cardname} levels down'
+                add_message(delta, f'{cardname} levels down')
             else:
                 card.cracked = True
-                delta.meta.message = f'{cardname} cracks'
+                add_message(delta, f'{cardname} cracks')
             update(delta, {opp(seat): {'cards': {cardname: card}}})
             return 'level_damage'
 
@@ -105,26 +112,31 @@ class Pebble(RPSCard):
         if timing_bonus == 0:
             update(delta, {seat: {'selection': {'ability_number': ('add', -1)}}})
         update(delta, {opp(seat): {'hp': ('add', -dmg)}})
+        add_message(delta, f"Pebble hits! {dmg}")
 
     def badge(cls):
         update(delta, {seat: {'badges': {'ins': ['DmgMultiplier', 2]}}})
+        add_message(delta, "Pebble grants DmgMultiplier(2x)")
 
 
 class Napkin(RPSCard):
 
     type = PAPER
-    ability_order = ['health', 'damage', 'badge']
+    ability_order = ['health', 'damage', 'shield']
 
     def health(cls):
         update(delta, {seat: {'hp': ('add', level)}})
+        add_message(delta, f"Napkin heals! {level}")
 
     def damage(cls):
         other_ability = other.selection.name
         other_level = other.cards.get(other_ability).level
         update(delta, {opp(seat): {'hp': ('add', -other_level)}})
+        add_message(delta, f"Napkin hits! {other.level}")
 
-    def badge(cls):
+    def shield(cls):
         update(delta, {seat: {'shields': {'add', 1}}})
+        add_message(delta, "Napkin grants a shield")
 
 
 

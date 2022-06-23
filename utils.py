@@ -18,17 +18,18 @@ def opp(p):
 
 import collections.abc
 
+
 # apply all ops to the base modifier, then apply the final modifier
 # e.g. starting hp 15, -2 base dmg, -1, x2 = -6 -> 9hp
 mod_table = {
     'add': lambda x, y: x + y,
     'mul': lambda x, y: x * y,
 }
-def apply_numeric_modifiers(value, mods):
+def combine_numeric_modifiers(mods):
     final_mod = 0
     for mod in mods:
         final_mod = mod_table[mod[0]](final_mod, mod[1])
-    return value + final_mod
+    return final_mod
 
 # handling numbers:
 # update = False, ie, we're working on a delta
@@ -52,10 +53,8 @@ def update(d, u, update_numbers=False):
             del d[k]
         elif type(v) is tuple:
             if update_numbers:
-                if k in d:
-                    d[k] = apply_numeric_modifiers(d[k], v)
-                else:
-                    d[k] = apply_numeric_modifiers(0, v)
+                base = d[k] if k in d else 0
+                d[k] = base + combine_numeric_modifiers(v)
             else:
                 if k not in d:
                     d[k] = v
@@ -82,6 +81,9 @@ def update(d, u, update_numbers=False):
         else:
             d[k] = v
     return d
+
+def add_message(delta, message):
+    update(delta, {'meta': {'message': {'ins': message}}})
 
 def mzip(*lists):
     max_len = max(map(len, lists))
