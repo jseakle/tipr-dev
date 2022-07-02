@@ -16,8 +16,10 @@ class DmgMultiplier(Badge):
                     add_message(delta, f"DmgMultiplier({self.arg}) applies. {total}")
 
 
-effect_params = ['gamestate', 'history', 'seat', 'player', 'other', 'timing_bonus', 'level', 'badges_apply', 'delta', 'badges_used']
+effect_params = ['gamestate', 'history', 'seat', 'player', 'other', 'timing_bonus', 'level', 'badges_apply', 'delta']
 class RPSCard(object):
+
+    decks = ['basic']
 
     # called on every subclass
     def init(cls):
@@ -25,8 +27,8 @@ class RPSCard(object):
         cls.abilities = update(Box({
             1: cls.level_up,
             2: cls.level_damage,
-        }), {3+i:x for i, x in enumerate(reversed(cls.ability_order))})
-        cls.abilities[i+1] = cls.start
+        }), {3+i:getattr(cls, x) for i, x in enumerate(reversed(cls.ability_order))})
+        cls.abilities[len(cls.ability_order)+3] = cls.start
 
     @classmethod
     def get_badges(cls, player, type):
@@ -36,18 +38,18 @@ class RPSCard(object):
     @classmethod
     def apply(cls, gamestate, history, seat):
         selection = gamestate.get(seat).selection
-        ability = selection.ability
+        ability_number = selection.ability_number
         timing_bonus = selection.timing
         player = gamestate.get(seat)
-        level = player.cards.get(ability).level
+        level = player.cards.get(selection.name).level
         other = gamestate.get(opp(seat))
-        delta = Box({seat: {'selection': {'ability_number': ability - 1}}})
-
+        delta = Box({seat: {'selection': {'ability_number': ability_number - 1}}})
         badges_apply = gamestate.meta.outcome.type == 'win' and gamestate.meta.outcome.player == seat
-        # possibly _the_ most cursed line of code i've ever written
-        inject(**{param: locals()[param] for param in effect_params})(cls.stages[ability])
+        globals().update(locals())
+        badge_tuple = cls.abilities[ability_number](cls)
         # one-type abilities can be named after their type instead of returning it
-        badge_types = list(cls.abilities[ability]() or cls.abilities[ability].__name__)
+        badge_types = list(badge_tuple or (cls.abilities[ability_number].__name__,))
+
         badges_used = []
         for badge_type in badge_types:
             for badge in cls.get_badges(player, badge_type):
@@ -61,17 +63,15 @@ class RPSCard(object):
             add_message(delta, "Shield used")
 
         # only use up badges after they've had a chance to apply to each stage
-        if ability == 1:
+        if ability_number == 1:
             delta.ga(seat).badges = list(set(gamestate.get(seat).badges) - set(badges_used))
             delta.ga(seat).badges_used = []
 
         return delta
 
-    @classmethod
     def start(cls):
         return 'start'
 
-    @classmethod
     def level_up(cls):
         if badges_apply:
             cardname = gamestate.get(seat).selection.name
@@ -82,8 +82,6 @@ class RPSCard(object):
             add_message(delta, f'{cardname} levels up')
             return 'level_up'
 
-
-    @classmethod
     def level_damage(cls):
         if badges_apply:
             cardname = other.selection.name
@@ -110,8 +108,8 @@ class Pebble(RPSCard):
         if timing_bonus == 2:
             dmg += 3 * level
         if timing_bonus == 0:
-            update(delta, {seat: {'selection': {'ability_number': ('add', -1)}}})
-        update(delta, {opp(seat): {'hp': ('add', -dmg)}})
+            update(delta, {seat: {'selection': {'ability_number': (('add', -1),)}}})
+        damage(delta, opp(seat), dmg)
         add_message(delta, f"Pebble hits! {dmg}")
 
     def badge(cls):
@@ -131,7 +129,7 @@ class Napkin(RPSCard):
     def damage(cls):
         other_ability = other.selection.name
         other_level = other.cards.get(other_ability).level
-        update(delta, {opp(seat): {'hp': ('add', -other_level)}})
+        damage(delta, opp(seat), other_level)
         add_message(delta, f"Napkin hits! {other.level}")
 
     def shield(cls):
@@ -139,11 +137,22 @@ class Napkin(RPSCard):
         add_message(delta, "Napkin grants a shield")
 
 
+class Truce(RPSCard):
 
+    type = DEFAULT
+    ability_order = ['damage']
+
+    def damage(cls):
+        damage(delta, seat, 1)
+
+
+class PaciveIncome(RPSCard):
+
+    type = DEFAULT
+    ability_order = ['health']
+
+    def health(cls):
+        damage(delta, seat, -2)
 
 for cls in RPSCard.__subclasses__():
     RPSCard.init(cls)
-    for name in cls.__dict__:
-        item = getattr(cls, name)
-        if callable(item):
-            setattr(cls, item, classmethod(item))

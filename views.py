@@ -1,5 +1,6 @@
 import json
-from datetime import datetime, timedelta
+import logging
+from datetime import datetime, timedelta, timezone
 
 from django.core.cache import cache
 
@@ -14,7 +15,17 @@ from tipr.rps import RPSRules
 rules_classes = {
     'rps': RPSRules(),
 }
-reserved_names = ['empty']
+reserved_names = ['']
+
+
+def pause_others(game):
+    game.status = ACTIVE
+    game.save()
+    for g in (Game.objects.filter(status=ACTIVE) | \
+             Game.objects.filter(people__0__contains=game.people[0][0]) | \
+             Game.objects.filter(people__0__contains=game.people[0][1])).exclude(id=game.pk):
+        g.status = PAUSED
+        g.save()
 
 class Register(View):
     def post(self, request):
@@ -39,18 +50,20 @@ class Sit(View):
             game_type = request.POST.get('type')
             rules = rules_classes[game_type]
             options = update(rules.DEFAULT_OPTIONS.copy(), request.POST.get('options'))
-            starting_seats = [['empty']*options['player_count'], [False]*options['player_count']]
+            starting_seats = [['']*options['player_count'], [False]*options['player_count']]
             starting_seats[0][seat] = name
             starting_seats[1][seat] = True
             game = Game(type=game_type, people=starting_seats, options=options, gamestate=rules.start_state(options))
+            game.keyframe()
         else:
             game = Game.objects.get(pk=gameid)
             if game.people[0][seat]:
-                return JsonResponse({'error': 'seat already taken'})
+                return JsonResponse({'error': 'seat already taken'}, status=500)
             game.people[0][seat] = name
             game.people[1][seat] = True
             if all(game.people[1]):
                 game.status = ACTIVE
+                pause_others(game)
         game.save()
         request.session['gameid'] = game.pk
         return JsonResponse({'game': game.pk})  # unused, revisit
@@ -64,18 +77,18 @@ def get_seat(game, name):
 class Load(View):
     def get(self, request):
         name = request.session.get('name')
-        game = Game.objects.filter(people__contains=name, status=ACTIVE)
+        game = Game.objects.filter(people__0__contains=name, status=ACTIVE)
         if not game:
             return render(request, 'homepage.html')
         seat = get_seat(game, name)
         return render(request, f'{game.type}.html',
                       game.response(rules_classes[game.type].response(game, seat, full=True),
-                                    datetime.now(), full=True))
+                                    tznow(), full=True))
 
 class Update(View):
     def post(self, request):
 
-        now = datetime.now()
+        now = tznow()
         name = request.session.get('name')
         id = request.session.get('gameid')
 
@@ -111,20 +124,27 @@ class Update(View):
 
         if game.last_tick and now - game.last_tick > timedelta(seconds=game.next_tick):
             keyframe_name = rules.keyframe_name
-            prev = game.gamestate.meta[keyframe_name]
+            gamestate = Box(game.gamestate)
+            prev = gamestate.meta[keyframe_name]
             try:
                 delta = rules.do_update(game)
-                update(game.gamestate, delta)
+                logging.warn(f"{delta}")
+                update(gamestate, delta, update_numbers=True)
                 game.last_tick = now
                 game.next_tick = rules.next_tick(game)
-                if message := game.gamestate['meta']['message']:
+                for message in gamestate.meta.message:
                     game.chat('system', message, now)
+                gamestate.meta.message = []
+                game.gamestate = dict(gamestate)
 
-                if game.gamestate['meta'][keyframe_name] != prev:
+                if gamestate.meta[keyframe_name] != prev:
                     game.keyframe()
                 else:
                     game.event('time', delta, now)
             except Exception as e:
+                logging.warn(f'rewinding: {e}')
+                b(e)
+                s()
                 message = f'error doing timed update: {e}\nresetting to {keyframe_name} {prev}'
                 game.chat('system', message, now)
                 game.rewind(1, message)
@@ -134,19 +154,23 @@ class Update(View):
 
 class Submit(View):
     def post(self, request):
-        now = datetime.now()
+        now = tznow()
         name = request.session.get('name')
-        game = Game.objects.filter(people__contains=name, status=ACTIVE).get()
+        try:
+            game = Game.objects.filter(people__0__contains=name, status=ACTIVE).get()
+        except:
+            return JsonResponse({'error': 'no active game'}, status=500)
         rules = rules_classes[game.type]
         seat = get_seat(game, name)
         move = json.loads(request.POST.get('move'))
         delta = rules.move(game, seat, move)
         if 'error' in delta:
-            return JsonResponse(delta)
+            logging.warn(delta)
+            return JsonResponse(delta, status=500)
         game.event('move', move, now)
         update(game.gamestate, delta)
         game.save()
-        return JsonResponse(game.response(rules.repsonse(game, seat), now))
+        return JsonResponse(game.response(rules.response(game, seat), now))
 
 
 class Home(View):
@@ -156,6 +180,7 @@ class Home(View):
 class GamePage(View):
     def get(self, request, id):
         game = Game.objects.get(pk=id)
+        pause_others(game)
         request.session['gameid'] = game.pk
         return render(request, 'game.html', {'game': game})
 
@@ -170,6 +195,7 @@ class GameList(View):
         for game in Game.objects.filter(status__lt=FINISHED):
             if name and name in game.people[0]:
                 gamelist_context.my_games.append(game)
+
             else:
                 gamelist_context.other_games.append(game)
 
@@ -178,4 +204,5 @@ class GameList(View):
             response.gamelist = 'U'
         else:
             cache.set(f'{name}_gamelist', response.gamelist)
+
         return JsonResponse(response)

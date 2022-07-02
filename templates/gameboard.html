@@ -1,2 +1,3 @@
 Hi {{ request.session.name }}, you are {{ seat }}<br>
-{{ gamestate }}
+<pre><div id="board"></div></pre>
+{{ gamestate|json_script:"board_json" }}

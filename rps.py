@@ -1,14 +1,17 @@
 import functools
+import logging
 import random
 from tipr.utils import *
-from rps_cards import *
+from tipr.rps_cards import *
 
 
 
 class RPSRules(object):
 
+    keyframe_name = 'round'
+
     DEFAULT_OPTIONS = {
-        'timer': 10,
+        'timer': 3,
         'player_count': 2,
         'deck': 'basic',  # card classes tagged with deck names
     }
@@ -20,13 +23,14 @@ class RPSRules(object):
             'max_hp': MAX_HP,
             'hp': STARTING_HP,
             'coins': 0,
-            'selection': None,  # {name, ability_number, stage}. Used for tracking in stage 4.
+            'selection': {},  # {name, ability_number, stage, timing}. Used for tracking in stage 4.
             'badges': [],
             'badges_used': [],  # remembering during ability resolution
             'shields': 0,
             'restrictions': [],
-            'stages': {1: [], 2: [], 3: []},
-            'cards': {name: {'level': 1, 'cracked': False, 'type': card.type} for name, card in RPSRules.deck(options['deck'])}
+            'stages': {'1': [], '2': [], '3': []},
+            'cards': {name: {'level': 1, 'cracked': False, 'type': card.type}
+                      for name, card in RPSRules.deck(options['deck']).items()}
         }
 
     def start_state(self, options):
@@ -46,7 +50,7 @@ class RPSRules(object):
     @staticmethod
     def deck(deck):
         card_classes = filter(lambda cls: deck in cls.decks, RPSCard.__subclasses__())
-        return {card.name: card for card in card_classes}
+        return {card.__name__: card for card in card_classes}
 
     @functools.cache
     @staticmethod
@@ -57,7 +61,7 @@ class RPSRules(object):
         ret = []
         for seat in seats:
             found = False
-            for stage in (1, 2, 3):
+            for stage in ('1', '2', '3'):
                 for action in gamestate[seat].stages[stage]:
                     if action.kind == 'RPS':
                         found = True
@@ -71,7 +75,13 @@ class RPSRules(object):
         return ret
 
     def outcome_message(self, player, outcome):
-        return f'{player} {outcome}'
+        match outcome:
+            case 'truce':
+                return "Truce! Everyone takes 1 damage."
+            case 'default':
+                return f'{player} wins by default'
+            case _:
+                return f'{player} {outcome}'
 
     def response(self, game, seat, full=False):
         return self.pure_response(Box(game.options), Box(game.gamestate), game.history, seat, full)
@@ -85,9 +95,10 @@ class RPSRules(object):
             # this player's current view + other player's view at last keyframe
             player = seats[seat]
             other = opp(player)
-            for name, card in gamestate[other].cards:
+            for name, card in gamestate[other].cards.items():
                 if 'revealed' not in card:
-                    gamestate[other].cards[name] = history[-1][0][other].cards[name]
+                    gamestate[other].cards[name] = history[-1][0]['info'][other]['cards'][name]
+
 
         return gamestate
 
@@ -95,20 +106,24 @@ class RPSRules(object):
         return self.pure_update(Box(game.options), Box(game.gamestate), game.history)
 
     def pure_update(self, options, gamestate, history):
+        delta = empty_delta()
         match gamestate.meta.stage:
-            case 1 | 2:
-                return {'meta': {'stage': gamestate.meta.stage + 1, 'message': ''}}
+            case 1 | 2 as st:
+                add_message(delta, f'Stage {st}')
+                delta.meta.stage = st + 1
+                return delta
             case 3:
                 # Box(seat, stage, card)
                 p1_selection, p2_selection = self.get_selections(gamestate)
-                happens_first = happens_second = Box(owner=None, rps=None, level=0, timing=None)
-
+                happens_first = Box(owner=None, rps=None, level=0, timing=None)
+                happens_second = Box(owner=None, rps=None, level=0, timing=None)
                 match p1_selection, p2_selection:
                     case None, None:
                         happens_first.update(owner='p1', rps='Truce')
                         happens_second.update(owner='p2', rps='Truce')
                         outcome = 'truce'
-                    case ({**w}, None) | (None, {**w}):
+
+                    case (Box() as w, None) | (None, Box() as w):
                         happens_first.update(owner='p2' if w.seat == 'p1' else 'p1', rps='PaciveIncome')
                         happens_second.update(owner=w.seat, rps=w.name,
                                               level=gamestate[w.seat].cards[w.name].level)
@@ -143,29 +158,31 @@ class RPSRules(object):
                         outcome = 'win'
 
                 msg = self.outcome_message(happens_first.owner, outcome)
-                delta = {'meta': {'stage': 4, 'message': msg, 'outcome': {'player': happens_first.owner, 'type': outcome}},
-                        happens_first.owner: {'selection':
-                              {'name': happens_first.rps,
-                               'timing': happens_first.timing,
-                               'ability': len(RPSRules.deck(options.deck).get(happens_first.rps).ability_order) + 2}}}
+                update(delta, {'meta': {'stage': 4, 'outcome': {'player': happens_first.owner, 'type': outcome}},
+                         happens_first.owner: {'selection':
+                               {'name': happens_first.rps,
+                                'timing': happens_first.timing,
+                                # 'stage': when it was chosen
+                                'ability_number': len(RPSRules.deck(options.deck).get(happens_first.rps).ability_order) + 3}}})
+                add_message(delta, msg)
                 if happens_second.owner:
-                    delta[happens_second.owner].selection = \
+                    update(delta, {happens_second.owner: {'selection':
                         {'name': happens_second.rps,
-                         'ability':  len(RPSRules.deck(options.deck).get(happens_second.rps).ability_order) + 2}
+                         'timing': 0,
+                         'ability_number': len(RPSRules.deck(options.deck).get(happens_second.rps).ability_order) + 3}}})
                 else:  # it won't happen, but we might need the name
-                    delta[opp(happens_first.owner)].selection = {'name': p2_selection.name, 'ability': 0}
-
+                    delta[opp(happens_first.owner)].selection = {'name': p2_selection.name, 'ability_number': 0}
+                logging.warn(f"THREE: {delta}")
                 return delta
 
             case 4:
-                delta = empty_delta
                 outcome = gamestate.meta.outcome
                 active_player = outcome.player
                 inactive_player = opp(active_player)
-                if (selection := gamestate.get(active_player).selection).ability:
+                if (selection := gamestate.get(active_player).selection).ability_number:
                     resolving_player = active_player
                 else:
-                   if not (selection := gamestate.get(inactive_player).selection).ability:  # done
+                   if not (selection := gamestate.get(inactive_player).selection).ability_number:  # done
                        round = gamestate.meta.round
                        delta.meta = {'round': round + 1, 'stage': 1}
                        for seat in seats:
@@ -174,36 +191,47 @@ class RPSRules(object):
                            delta.ga(seat).restrictions = [update(restriction, {'duration': restriction.duration - 1})
                                       for restriction in gamestate.get(seat).restrictions if restriction.duration != 1]
 
-                       delta.meta.message += f'round {round} ends'
+                       add_message(delta, f'round {round} ends')
+                       logging.warn(f"ONE: {delta}")
                        return delta
                    else:
                        resolving_player = inactive_player
 
                 # card updates its own stage so it can skip stuff, etc
-                card = self.deck(options.deck)[selection]
-                return update(delta, card.apply(gamestate, history, resolving_player))
+                card = RPSRules.deck(options.deck)[selection.name]
+                result = card.apply(gamestate, history, resolving_player)
+                logging.warn(f"{delta}\n--\n{result}")
+                return update(delta, result)
 
-    def move(self, game, move, seat):
-        if not game.status == 'ACTIVE':
+    def move(self, game, seat, move):
+        if not game.status == ACTIVE:
             return {'error': f'game is {game.status}'}
-        return self.pure_move(Box(game.options), Box(game.gamestate), game.history, seat, Box(move))
+        return self.pure_move(Box(game.options), Box(game.gamestate), game.history, f"p{seat+1}", Box(move))
 
     def pure_move(self, options, gamestate, history, seat, move):
+        if gamestate.meta.stage > 3:
+            return {'error': 'between rounds'}
+
         for restriction in gamestate.get(seat).restrictions:
             if restriction.applies(gamestate, seat, move):
                 return {'error': restriction.source}
 
-        delta = empty_delta
+        for stage in range(1,4):
+            if selections := gamestate.get(seat).stages.get(str(stage)):
+                if any(filter(lambda x: x['kind'] == 'RPS', selections)):
+                    return {'error': 'already submitted'}
+
+        delta = empty_delta()
         match move.type:
             case 'selection':
-                delta.ga(seat).selection = move.selection
+                delta.ga(seat).ga('stages')[str(gamestate.meta.stage)] = {'ins': [{'kind': 'RPS', 'name': move.selection}]}
             case 'coin':
                 pass
 
         return delta
 
     def next_tick(self, game):
-        if game.gamestate.meta.stage <= 3:
+        if game.gamestate['meta']['stage'] <= 3:
             return game.options['timer']
         else:
             return 2

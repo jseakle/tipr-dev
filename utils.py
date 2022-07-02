@@ -1,12 +1,27 @@
 import collections, sys
+import logging
+import pdb
+from datetime import datetime, timezone
 from itertools import chain
+import traceback
 
 from box import Box as oBox
+from pdb import set_trace as s
+
+def nothing():
+    pass
+#s = nothing
+
+def b(e):
+    logging.warning(traceback.format_exc(e))
+
+
 CREATED = 0
-ACTIVE = 1
+ACTIVE = 1  # one at a time, others are paused
 PAUSED = 2
 FINISHED = 3
 
+DEFAULT = -1
 ROCK = 0
 PAPER = 1
 SCISSORS = 2
@@ -59,16 +74,16 @@ def update(d, u, update_numbers=False):
                 if k not in d:
                     d[k] = v
                 else:
-                    match d[k]:
-                        case (str(), _) as t:
-                            d[k] = (t, v)
-                        case (tuple(), _) as t:
-                            d[k] = tuple(chain(t, (v,)))
-                        case _:
-                            raise RuntimeError(f"Don't put tuples on {type(d[k])}s")
+                    if type(d[k]) is tuple:
+                        d[k] = tuple(list(d[k]) + list(v))
+                    else:
+                        raise RuntimeError(f"Don't put tuples ({v}) on {d[k]}")
         elif k in d and type(d[k]) is tuple:
-            raise RuntimeError(f"Don't put {type(v)} on tuples")
-        elif isinstance(d[k], list):
+            raise RuntimeError(f"Don't put {v} on tuples ({d[k]})")
+        elif k in d and isinstance(d[k], list):
+            if isinstance(v, list):
+                d[k] = v
+                continue
             if 'deletes' in v:
                 d[k] = filter(lambda i, x: i not in v['deletes'], enumerate(d[k]))
             if 'del_values' in v:
@@ -76,25 +91,35 @@ def update(d, u, update_numbers=False):
                     d[k].remove(del_val)
             if 'ins' in v:
                 d[k].extend(v['ins'])
+
         elif isinstance(v, collections.abc.Mapping):
-            d[k] = update(d.get(k, {}), v)
+            d[k] = update(d.get(k, {}), v, update_numbers)
         else:
-            d[k] = v
+            try:
+                d[k] = v
+            except:
+                s()
     return d
 
 def add_message(delta, message):
-    update(delta, {'meta': {'message': {'ins': message}}})
+    update(delta, {'meta': {'message': {'ins': [message]}}})
+
+def damage(delta, who, amt):
+    update(delta, {who: {'hp': (('add', -amt),)}})
 
 def mzip(*lists):
+    if not lists:
+        return [[]]
     max_len = max(map(len, lists))
     return zip(*(l + [None] * (max_len - len(l)) for l in lists))
 
+def tznow():
+    return datetime.now(timezone.utc)
+
 class Box(oBox):
     def __getattr__(self, name):
-
         if name in ['del_values']:
             setattr(self, name, [])
-
         return super(Box, self).__getattr__(name)
 
     # enable assignment to possibly new fields even when a key on the path is a variable
@@ -107,63 +132,5 @@ class Box(oBox):
             return self.__getattr__(name)
 
 
-empty_delta = Box({'meta': {'message': ''}})
-
-
-class inject(object):
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-
-    def __call__(self, fn):
-        from functools import wraps
-        @wraps(fn)
-        def wrapped(*args, **kwargs):
-            old_trace = sys.gettrace()
-            def tracefn(frame, event, arg):
-                # define a new tracefn each time, since it needs to
-                # call the *current* tracefn if they're in debug mode
-                frame.f_locals.update(self.kwargs)
-                if old_trace:
-                    return old_trace(frame, event, arg)
-                else:
-                    return None
-
-            sys.settrace(tracefn)
-            try:
-                retval = fn(*args, **kwargs)
-            finally:
-                sys.settrace(old_trace)
-            return retval
-
-        return wrapped
-
-    def into(self, fn, *args, **kwargs):
-        return self(fn)(*args, **kwargs)
-
-# no debugging allowed
-class prod_inject(object):
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-
-        def _tracefn(frame, event, arg):
-            frame.f_locals.update(self.kwargs)
-            return None
-        self.tracefn = _tracefn
-
-    def __call__(self, fn):
-        from functools import wraps
-        @wraps(fn)
-        def wrapped(*args, **kwargs):
-
-            old_trace = sys.gettrace()
-            sys.settrace(self.tracefn)
-            try:
-                retval = fn(*args, **kwargs)
-            finally:
-                sys.settrace(old_trace)
-            return retval
-
-        return wrapped
-
-    def into(self, fn, *args, **kwargs):
-        return self(fn)(*args, **kwargs)
+def empty_delta():
+    return Box({'meta': {'message': []}})

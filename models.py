@@ -17,19 +17,23 @@ class Game(models.Model):
 
     def chat(self, user, message, timestamp=None):
         if not timestamp:
-            timestamp = datetime.now()
+            timestamp = tznow()
         self.chat_log.append([timestamp.timestamp(), user, message])
         self.save()
 
     def event(self, type, info, timestamp=None):
         if not timestamp:
-            timestamp = datetime.now()
-        self.history[-1].append([type, info, timestamp.timestamp()])
+            timestamp = tznow()
+        self.history[-1].append({'type': type,
+                                 'info': info,
+                                 'timestamp': timestamp.timestamp()})
         self.save()
 
     def keyframe(self):
-        timestamp = datetime.now()
-        self.history.append([['keyframe', self.gamestate, timestamp.timestamp()]])
+        timestamp = tznow()
+        self.history.append([{'type': 'keyframe',
+                              'info': self.gamestate,
+                              'timestamp': timestamp.timestamp()}])
         self.save()
 
     def response(self, prepared_gamestate, now, full=False):
@@ -38,6 +42,9 @@ class Game(models.Model):
             remaining = 0
         else:
             duration = self.next_tick
+            if not self.last_tick:
+                self.last_tick = now
+                self.save()
             remaining = duration - (now - self.last_tick).seconds
         return Box({
             'timer_duration': duration,
@@ -49,9 +56,9 @@ class Game(models.Model):
         })
 
     def rewind(self, keyframes, reason):
-        self.gamestate = self.history[-keyframes][1]
+        self.gamestate = self.history[-keyframes][0]['info']
         if self.status == ACTIVE:
-            now = datetime.now()
+            now = tznow()
             self.last_tick = now
             self.next_tick = -1
             self.chat('system', reason, now)

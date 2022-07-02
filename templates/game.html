@@ -14,24 +14,33 @@
         .fail(function(response) {console.log(response)});
     }
     function sit(seat) {
-        $.post('../sit/', {seat: seat, type: 'rps'}, function(data) {
+        $.post('../sit/', {seat: seat, type: 'rps', game: {{game.id}}}, function(data) {
             $('#sitstat').html('sat in ' + seat)
         }).fail(function(response) {
-            $('#sitstat').html(response)
+            $('#sitstat').html(response.responseJSON['error'])
+        });
+
+    }
+    function submit(move) {
+        $.post('../submit/', {move: '{"type": "selection", "selection": "'+move+'"}'}, function(data) {
+            $('#movestat').html('submitted ' + move)
+        }).fail(function(response) {
+            $('#movestat').html(response.responseJSON['error'])
         });
     }
     var timer = new Timer({
-        fps: .5,
+        fps: .000002,
         run: function () {
             if($('#gameboard').is(':empty')) {
                 load = true;
             }
-            $.post('../update/', {load: load}, function (response) {
+           $.post('../update/', {load: load}, function (response) {
                 if ('error' in response) {
                     $('#game').html(response['error'])
                 } else {
                     if (response['gameboard'] != 'U') {
-                         $('#gameboard').html( response['gameboard'])
+                        $('#gameboard').html( response['gameboard'])
+                        $('#gameboard #board').html(JSON.stringify(JSON.parse($('#gameboard #board_json').text()), null, 2))
                     }
                      $('#timer').html( response['timer'])
                     console.log(response)
@@ -51,6 +60,12 @@
 <button name="sit" onclick="sit(0)">sit0</button>
 <button name="sit" onclick="sit(1)">sit1</button>
 <div id="sitstat"></div>
+<button name="pebble" onclick="submit('Pebble')">pebble</button>
+<button name="napkin" onclick="submit('Napkin')">napkin</button>
+<div id="movestat"></div>
 <div id="timer"></div>
+<div id="chat">{% for message in chat_log %}
+    {{ message }} <br>
+{% endfor %}</div>
 <div id="gameboard"></div>
 {% endblock content %}
