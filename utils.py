@@ -60,24 +60,28 @@ def combine_numeric_modifiers(mods):
 #   nothing, tuple -> tupleops(0). maybe. the idea is that this could handle "counters" in the future
 #   number, number -> new number
 #   number, tuple -> tupleops(number)
-def update(d, u, update_numbers=False):
+def update(d, u):
     if not u:
         return d
     for k, v in u.items():
         if v == 'del':
             del d[k]
-        elif type(v) is tuple:
-            if update_numbers:
-                base = d[k] if k in d else 0
-                d[k] = base + combine_numeric_modifiers(v)
+        elif k == 'dins':  # 'delta insert'
+            if 'ins' in d:
+                d['ins'].append(v)
             else:
-                if k not in d:
-                    d[k] = v
+                d['ins'] = [v]
+        elif type(v) is tuple:
+            if k not in d:
+                d[k] = v
+            else:
+                if type(d[k]) is tuple:
+                    d[k] = tuple(list(d[k]) + list(v))
+                elif type(d[k]) is int:
+                    base = d[k] if k in d else 0
+                    d[k] = base + combine_numeric_modifiers(v)
                 else:
-                    if type(d[k]) is tuple:
-                        d[k] = tuple(list(d[k]) + list(v))
-                    else:
-                        raise RuntimeError(f"Don't put tuples ({v}) on {d[k]}")
+                    raise RuntimeError(f"Don't put tuples ({v}) on {d[k]}")
         elif k in d and type(d[k]) is tuple:
             raise RuntimeError(f"Don't put {v} on tuples ({d[k]})")
         elif k in d and isinstance(d[k], list):
@@ -93,7 +97,7 @@ def update(d, u, update_numbers=False):
                 d[k].extend(v['ins'])
 
         elif isinstance(v, collections.abc.Mapping):
-            d[k] = update(d.get(k, {}), v, update_numbers)
+            d[k] = update(d.get(k, {}), v)
         else:
             try:
                 d[k] = v
@@ -104,14 +108,23 @@ def update(d, u, update_numbers=False):
 def add_message(delta, message):
     update(delta, {'meta': {'message': {'ins': [message]}}})
 
-def damage(delta, who, amt):
-    update(delta, {who: {'hp': (('add', -amt),)}})
+def damage(delta, who, amt, mul=False):
+    if mul:
+        update(delta, {who: {'hp': (('mul', amt),)}})
+    else:
+        update(delta, {who: {'hp': (('add', -amt),)}})
 
 def mzip(*lists):
     if not lists:
         return [[]]
     max_len = max(map(len, lists))
     return zip(*(l + [None] * (max_len - len(l)) for l in lists))
+
+def luple(l):
+    return set(map(tuple, l))
+
+def unluple(s):
+    return list(map(list, s))
 
 def tznow():
     return datetime.now(timezone.utc)

@@ -64,7 +64,7 @@
 <button name="napkin" onclick="submit('Napkin')">napkin</button>
 <div id="movestat"></div>
 <div id="timer"></div>
-<div id="chat">{% for message in chat_log %}
+<div id="chat">{% for message in game.chat_log %}
     {{ message }} <br>
 {% endfor %}</div>
 <div id="gameboard"></div>

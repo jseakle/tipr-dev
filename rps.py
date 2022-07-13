@@ -5,16 +5,16 @@ from tipr.utils import *
 from tipr.rps_cards import *
 
 
-
 class RPSRules(object):
 
     keyframe_name = 'round'
 
     DEFAULT_OPTIONS = {
-        'timer': 3,
+        'timer': 1,
         'player_count': 2,
         'deck': 'basic',  # card classes tagged with deck names
     }
+    stage_dict = {'1': [], '2': [], '3': []}
 
     def player_state(self, options):
         STARTING_HP = 250
@@ -28,7 +28,7 @@ class RPSRules(object):
             'badges_used': [],  # remembering during ability resolution
             'shields': 0,
             'restrictions': [],
-            'stages': {'1': [], '2': [], '3': []},
+            'stages': RPSRules.stage_dict,
             'cards': {name: {'level': 1, 'cracked': False, 'type': card.type}
                       for name, card in RPSRules.deck(options['deck']).items()}
         }
@@ -65,7 +65,7 @@ class RPSRules(object):
                 for action in gamestate[seat].stages[stage]:
                     if action.kind == 'RPS':
                         found = True
-                        ret.append(Box(seat=seat, stage=stage, name=action.name,
+                        ret.append(Box(seat=seat, stage=int(stage), name=action.name,
                                        card=gamestate[seat].cards[action.name]))  # modifiers go in here too
                         break
                 if found:
@@ -77,9 +77,9 @@ class RPSRules(object):
     def outcome_message(self, player, outcome):
         match outcome:
             case 'truce':
-                return "Truce! Everyone takes 1 damage."
+                return "Truce! Everyone loses 1 health."
             case 'default':
-                return f'{player} wins by default'
+                return f'{opp(player)} wins by default'
             case _:
                 return f'{player} {outcome}'
 
@@ -113,6 +113,7 @@ class RPSRules(object):
                 delta.meta.stage = st + 1
                 return delta
             case 3:
+                add_message(delta, f'Stage 3')
                 # Box(seat, stage, card)
                 p1_selection, p2_selection = self.get_selections(gamestate)
                 happens_first = Box(owner=None, rps=None, level=0, timing=None)
@@ -171,7 +172,7 @@ class RPSRules(object):
                          'timing': 0,
                          'ability_number': len(RPSRules.deck(options.deck).get(happens_second.rps).ability_order) + 3}}})
                 else:  # it won't happen, but we might need the name
-                    delta[opp(happens_first.owner)].selection = {'name': p2_selection.name, 'ability_number': 0}
+                    delta.ga(opp(happens_first.owner)).selection = {'name': loser.name, 'ability_number': 0}
                 logging.warn(f"THREE: {delta}")
                 return delta
 
@@ -182,26 +183,43 @@ class RPSRules(object):
                 if (selection := gamestate.get(active_player).selection).ability_number:
                     resolving_player = active_player
                 else:
-                   if not (selection := gamestate.get(inactive_player).selection).ability_number:  # done
-                       round = gamestate.meta.round
-                       delta.meta = {'round': round + 1, 'stage': 1}
-                       for seat in seats:
-                           # in the future maybe wear-off messages for effects whose initial duration was > 1 turn
-                           # can use history for this
-                           delta.ga(seat).restrictions = [update(restriction, {'duration': restriction.duration - 1})
+                    if not (selection := gamestate.get(inactive_player).selection).ability_number:  # done
+                        round = gamestate.meta.round
+                        delta.meta = {'round': round + 1, 'stage': 1, 'outcome': 'del'}
+                        for seat in seats:
+                            # in the future maybe wear-off messages for effects whose initial duration was > 1 turn
+                            # can use history for this
+                            delta.ga(seat).restrictions = [update(restriction, {'duration': restriction.duration - 1})
                                       for restriction in gamestate.get(seat).restrictions if restriction.duration != 1]
+                            delta.get(seat).stages = RPSRules.stage_dict
+                            delta.get(seat).selection = 'del'
 
-                       add_message(delta, f'round {round} ends')
-                       logging.warn(f"ONE: {delta}")
-                       return delta
-                   else:
-                       resolving_player = inactive_player
+                        add_message(delta, f'round {round} ends')
+                        logging.warn(f"ONE: {delta}")
+                        return delta
+                    else:
+                        resolving_player = inactive_player
 
                 # card updates its own stage so it can skip stuff, etc
                 card = RPSRules.deck(options.deck)[selection.name]
                 result = card.apply(gamestate, history, resolving_player)
                 logging.warn(f"{delta}\n--\n{result}")
                 return update(delta, result)
+
+    def winner(self, game):
+        game = Box(game.gamestate)
+        p1_dead = game.p1.hp <= 0
+        p2_dead = game.p2.hp <= 0
+        if p2_dead and p1_dead:
+            if game.p1.hp == game.p2.hp:
+                return 'tie'
+            return seats[game.p2.hp > game.p1.hp]
+        elif p1_dead:
+            return 'p2'
+        elif p2_dead:
+            return 'p1'
+        else:
+            return None
 
     def move(self, game, seat, move):
         if not game.status == ACTIVE:
@@ -234,7 +252,7 @@ class RPSRules(object):
         if game.gamestate['meta']['stage'] <= 3:
             return game.options['timer']
         else:
-            return 2
+            return 1
 
 
 

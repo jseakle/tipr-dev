@@ -19,6 +19,8 @@ reserved_names = ['']
 
 
 def pause_others(game):
+    if game.status != PAUSED:
+        return
     game.status = ACTIVE
     game.save()
     for g in (Game.objects.filter(status=ACTIVE) | \
@@ -129,7 +131,7 @@ class Update(View):
             try:
                 delta = rules.do_update(game)
                 logging.warn(f"{delta}")
-                update(gamestate, delta, update_numbers=True)
+                update(gamestate, delta)
                 game.last_tick = now
                 game.next_tick = rules.next_tick(game)
                 for message in gamestate.meta.message:
@@ -141,6 +143,14 @@ class Update(View):
                     game.keyframe()
                 else:
                     game.event('time', delta, now)
+                if winner := rules.winner(game):
+                    if winner == 'tie':
+                        msg = "Tie game!"
+                    else:
+                        msg = f"{winner} wins!"
+                    game.chat('system', msg, now)
+                    game.status = FINISHED
+                    game.save()
             except Exception as e:
                 logging.warn(f'rewinding: {e}')
                 b(e)
