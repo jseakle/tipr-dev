@@ -26,8 +26,9 @@ SECRET_KEY = 'django-insecure-9z%-tj+1xy^4uy(3zba3*hfcn2ew!6fli^32@@0ao$nt+r0x)f
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['159.223.175.250', 'testserver', '127.0.0.1']
 
+ALLOWED_HOSTS = ['159.223.175.250', 'tipr.tk', 'testserver', '127.0.0.1']]
+CSRF_TRUSTED_ORIGINS = ['https://tipr.tk']
 
 # Application definition
 
