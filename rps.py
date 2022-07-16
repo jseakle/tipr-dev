@@ -24,10 +24,10 @@ class RPSRules(object):
             'hp': STARTING_HP,
             'coins': 0,
             'selection': {},  # {name, ability_number, stage, timing}. Used for tracking in stage 4.
-            'badges': [],
+            'badges': [],  # [[Name, Arg, Round], ..]
             'badges_used': [],  # remembering during ability resolution
             'shields': 0,
-            'restrictions': [],
+            'restrictions': [],  # [[Name, Arg, Source ("<ability> @ round #"), Duration], ..]
             'stages': RPSRules.stage_dict,
             'cards': {name: {'level': 1, 'cracked': False, 'type': card.type}
                       for name, card in RPSRules.deck(options['deck']).items()}
@@ -116,8 +116,8 @@ class RPSRules(object):
                 add_message(delta, f'Stage 3')
                 # Box(seat, stage, card)
                 p1_selection, p2_selection = self.get_selections(gamestate)
-                happens_first = Box(owner=None, rps=None, level=0, timing=None)
-                happens_second = Box(owner=None, rps=None, level=0, timing=None)
+                happens_first = Box(owner=None, rps=None, level=0, timing=0)
+                happens_second = Box(owner=None, rps=None, level=0, timing=0)
                 match p1_selection, p2_selection:
                     case None, None:
                         happens_first.update(owner='p1', rps='Truce')
@@ -148,7 +148,7 @@ class RPSRules(object):
                                 winner, loser = (p1, p2) if x < y else (p2, p1)
                                 happens_first.update(owner=winner.seat, rps=winner.name,
                                                      level=gamestate[winner.seat].cards[winner.name].level / 2,
-                                                     timing=1 if abs(x-y) == 2 else None)
+                                                     timing=1 if abs(x-y) == 2 else 0)
                                 outcome = 'ambush'
                     case Box() as p1, Box() as p2:
                         winner, loser = (p1, p2) if (p2.card.type + 1) % 3 == p1.card.type else (p2, p1)
@@ -174,6 +174,12 @@ class RPSRules(object):
                 else:  # it won't happen, but we might need the name
                     delta.ga(opp(happens_first.owner)).selection = {'name': loser.name, 'ability_number': 0}
                 logging.warn(f"THREE: {delta}")
+                for seat in seats:
+                    # in the future maybe wear-off messages for effects whose initial duration was > 1 turn
+                    # can use history for this
+                    delta.ga(seat).restrictions = [update(restriction, {'duration': restriction.duration - 1})
+                                                   for restriction in gamestate.get(seat).restrictions if
+                                                   restriction.duration != 1]
                 return delta
 
             case 4:
@@ -187,11 +193,7 @@ class RPSRules(object):
                         round = gamestate.meta.round
                         delta.meta = {'round': round + 1, 'stage': 1, 'outcome': 'del'}
                         for seat in seats:
-                            # in the future maybe wear-off messages for effects whose initial duration was > 1 turn
-                            # can use history for this
-                            delta.ga(seat).restrictions = [update(restriction, {'duration': restriction.duration - 1})
-                                      for restriction in gamestate.get(seat).restrictions if restriction.duration != 1]
-                            delta.get(seat).stages = RPSRules.stage_dict
+                            delta.ga(seat).stages = RPSRules.stage_dict
                             delta.get(seat).selection = 'del'
 
                         add_message(delta, f'round {round} ends')
@@ -221,6 +223,11 @@ class RPSRules(object):
         else:
             return None
 
+    def get_restrictions(self, gamestate, seat):
+        return [next(filter(lambda c: c.__name__ == rest['name'],
+                            Restriction.__subclasses__()))(rest['arg'], rest['source'], rest['duration'])
+                for rest in gamestate.get(seat).get('restrictions')]
+
     def move(self, game, seat, move):
         if not game.status == ACTIVE:
             return {'error': f'game is {game.status}'}
@@ -230,9 +237,9 @@ class RPSRules(object):
         if gamestate.meta.stage > 3:
             return {'error': 'between rounds'}
 
-        for restriction in gamestate.get(seat).restrictions:
+        for restriction in self.get_restrictions(gamestate, seat):
             if restriction.applies(gamestate, seat, move):
-                return {'error': restriction.source}
+                return {'error': f'Move rejected due to {restriction.source}'}
 
         for stage in range(1,4):
             if selections := gamestate.get(seat).stages.get(str(stage)):

@@ -152,8 +152,7 @@ class Update(View):
                     game.status = FINISHED
                     game.save()
             except Exception as e:
-                logging.warn(f'rewinding: {e}')
-                b(e)
+                logging.exception(f'rewinding')
                 s()
                 message = f'error doing timed update: {e}\nresetting to {keyframe_name} {prev}'
                 game.chat('system', message, now)

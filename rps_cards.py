@@ -1,5 +1,22 @@
 from tipr.utils import *
 
+class Restriction(object):
+    def __init__(self, arg, source, duration):
+        self.arg = arg
+        self.source = source
+        self.duration = duration
+
+    def json(self):
+        return {'name': self.__class__.__name__,
+                'arg': self.arg,
+                'source': self.source,
+                'duration': self.duration}
+
+class Disabled(Restriction):
+    def applies(self, gamestate, seat, move):
+        if move.selection == self.arg:
+            return True
+
 class Badge(object):
     def __init__(self, arg, round):
         self.arg = arg
@@ -136,13 +153,43 @@ class Napkin(RPSCard):
     def damage(cls):
         other_ability = other.selection.name
         other_level = other.cards.get(other_ability).level
-        damage(delta, opp(seat), other_level)
+        damage(delta, opp(seat), 4 * other_level)
         add_message(delta, f"{seat}: Napkin hits! {other_level}")
 
     def shield(cls):
         update(delta, {seat: {'shields': (('add', 1),)}})
         add_message(delta, f"{seat}: Napkin grants a shield")
 
+
+class ButterKnife(RPSCard):
+
+    type = SCISSORS
+    ability_order = ['damage', 'disable']
+
+    def damage(cls):
+        dmg = 10 + 2 * level
+        explanation = f" 10 + 2[l]({level})[/l]"
+        if timing_bonus >= 1:
+            dmg += 10
+            dmg += 4 * level
+            explanation += f" [1]+ 10 + 4[l]({level})[/l][/1]"
+        damage(delta, opp(seat), dmg)
+        add_message(delta, f"{seat}: ButterKnife hits! {explanation} = {dmg}")
+
+    def disable(cls):
+        duration = 1
+        explanation = "1"
+        if timing_bonus == 2:
+            duration = 2
+            explanation = "2"
+        opposing_ability = other.selection.name
+        if opposing_ability not in ["Truce", "PaciveIncome"]:
+            source = f"{opp(seat)}'s ButterKnife @ round {gamestate.meta.round}"
+            rest = Disabled(opposing_ability, source, duration)
+            update(delta, {opp(seat): {'restrictions': {'dins': rest.json()}}})
+            add_message(delta, f"{seat}: ButterKnife disables {opposing_ability} for {duration} rounds!")
+        else:
+            add_message(delta, f"{seat}: ButterKnife can't disable nothing!")
 
 class Truce(RPSCard):
 
