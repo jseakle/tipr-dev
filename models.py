@@ -36,6 +36,27 @@ class Game(models.Model):
                               'timestamp': timestamp.timestamp()}])
         self.save()
 
+    # interval_idx: keyframe to start from, as an index into the history list
+    # count: number of states forward from keyframe to include. 0 = all for this keyframe.
+    @staticmethod
+    def intermediate_states(history, interval_idx, count=0, last_only=False):
+        try:
+            interval = list(filter(lambda interval: 'rewound' not in interval[0], history))[interval_idx]
+        except IndexError:
+            return None
+        frame = interval[0]
+        if not last_only:
+            ret = [frame]
+        if count == 0:
+            count = len(interval)
+        for i in range(1, count):
+            frame = update(frame, interval[i])
+            if not last_only:
+                ret.append(frame)
+        if not last_only:
+            return ret
+        return Box(frame)
+
     def response(self, prepared_gamestate, now, full=False):
         if not self.next_tick:
             duration = -1
@@ -57,6 +78,8 @@ class Game(models.Model):
 
     def rewind(self, keyframes, reason):
         self.gamestate = self.history[-keyframes][0]['info']
+        for i in range(keyframes):
+            self.history[-i][0]['rewound'] = True
         if self.status == ACTIVE:
             now = tznow()
             self.last_tick = now

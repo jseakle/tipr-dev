@@ -19,8 +19,6 @@ reserved_names = ['']
 
 
 def pause_others(game):
-    if game.status != PAUSED:
-        return
     game.status = ACTIVE
     game.save()
     for g in (Game.objects.filter(status=ACTIVE) | \
@@ -52,6 +50,7 @@ class Sit(View):
             game_type = request.POST.get('type')
             rules = rules_classes[game_type]
             options = update(rules.DEFAULT_OPTIONS.copy(), request.POST.get('options'))
+            options['deck'] = RPSRules.deck()
             starting_seats = [['']*options['player_count'], [False]*options['player_count']]
             starting_seats[0][seat] = name
             starting_seats[1][seat] = True
@@ -80,6 +79,7 @@ class Load(View):
     def get(self, request):
         name = request.session.get('name')
         game = Game.objects.filter(people__0__contains=name, status=ACTIVE)
+        pause_others(game)
         if not game:
             return render(request, 'homepage.html')
         seat = get_seat(game, name)
@@ -171,6 +171,7 @@ class Submit(View):
             return JsonResponse({'error': 'no active game'}, status=500)
         rules = rules_classes[game.type]
         seat = get_seat(game, name)
+        # {"type": "selection", "selection": <slot>}
         move = json.loads(request.POST.get('move'))
         delta = rules.move(game, seat, move)
         if 'error' in delta:

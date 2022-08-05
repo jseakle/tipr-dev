@@ -25,6 +25,10 @@ DEFAULT = -1
 ROCK = 0
 PAPER = 1
 SCISSORS = 2
+TYPES = {-1: '???', 0: 'rock', 1: 'paper', 2: 'scissors'}
+
+TRUCE = 9
+INCOME = 10
 
 seats = ('p1', 'p2')
 
@@ -95,6 +99,8 @@ def update(d, u):
                     d[k].remove(del_val)
             if 'ins' in v:
                 d[k].extend(v['ins'])
+            if 'set' in v:
+                d[k][v['set'][0]] = v['set'][1]
 
         elif isinstance(v, collections.abc.Mapping):
             d[k] = update(d.get(k, {}), v)
