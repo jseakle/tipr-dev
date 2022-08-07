@@ -38,6 +38,16 @@ class DmgMultiplier(Badge):
                     total = combine_numeric_modifiers(delta.get(seat).hp)
                     add_message(delta, f"{self.seat}: DmgMultiplier({self.arg}) applies to {seat}. {-total}")
 
+class ScissorsDmgMultiplier(DmgMultiplier):
+
+    def apply(self, gamestate, delta):
+        selection = gamestate.get(self.seat).selection.slot
+        sel_type = gamestate.get(self.seat).cards[selection].type
+        if sel_type == SCISSORS:
+            super(ScissorsDmgMultiplier, self).apply(gamestate, delta)
+        else:
+            add_message(delta, f"{self.seat}: ScissorsDmgMultiplier wasted on a {TYPES[sel_type]}!")
+
 class DmgBonus(Badge):
     types = 'damage'
 
@@ -77,7 +87,8 @@ class RPSCard(object):
 
     @classmethod
     def get_badges(cls, seat, player, type):
-        badges = map(lambda name, args, round: next(filter(lambda c: c.__name__ == name, Badge.__subclasses__()))(seat, args, round), *mzip(*player.badges))
+        s()
+        badges = map(lambda name, args, round: next(filter(lambda c: c.__name__ == name, descendants(Badge)))(seat, args, round), *mzip(*player.badges))
         return filter(lambda badge: type in badge.types, badges)
 
     @classmethod
@@ -278,9 +289,19 @@ class Book(RPSCard):
 class Wirecutter(RPSCard):
 
     type = SCISSORS
-    ability_order = []
+    ability_order = ['damage', 'badge']
     slot = 5
 
+    def damage(cls):
+        levels = [card.level for card in player.cards if card.type == SCISSORS]
+        total = sum(levels)
+        damage(delta, opp(seat), total)
+        add_message(delta, f"{seat}: Wirecutter hits! [l]{levels}[/l] = {total}")
+
+    def badge(cls):
+        if timing_bonus >= 1:
+            update(delta, {seat: {'badges': {'dins': ['ScissorsDmgMultiplier', 3, gamestate.meta.round]}}})
+            add_message(delta, f"{seat}: [1]Wirecutter grants ScissorsDmgMultiplier(3)![/1]")
 
 class Mountain(RPSCard):
 

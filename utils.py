@@ -1,4 +1,5 @@
 import collections, sys
+import itertools
 import logging
 import pdb
 from datetime import datetime, timezone
@@ -150,6 +151,11 @@ class Box(oBox):
             setattr(self, name, {})
             return self.__getattr__(name)
 
+def descendants(cls):
+    subclasses = cls.__subclasses__()
+    if subclasses:
+        return itertools.chain(subclasses, itertools.chain.from_iterable(map(descendants, subclasses)))
+    return []
 
 def empty_delta():
     return Box({'meta': {'message': []}})
