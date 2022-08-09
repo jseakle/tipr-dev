@@ -26,7 +26,8 @@ DEFAULT = -1
 ROCK = 0
 PAPER = 1
 SCISSORS = 2
-TYPES = {-1: '???', 0: 'rock', 1: 'paper', 2: 'scissors'}
+TYPES = {-1: '???', 0: 'Rock', 1: 'Paper', 2: 'Scissors'}
+TYPELIST = ['Rock', 'Paper', 'Scissors']
 
 TRUCE = 9
 INCOME = 10

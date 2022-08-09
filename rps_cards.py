@@ -70,10 +70,29 @@ class LvlBonus(Badge):
                         card.level += 2
                         add_message(delta, f"{self.seat}: LvlBonus(+{self.arg}) applies to {seat}'s {name}.")
 
+class Curse(Badge):
+    types = 'start'
+
+    def apply(self, gamestate, delta):
+        damage(delta, self.seat, self.arg)
+        total = combine_numeric_modifiers(delta.get(seat).hp)
+        add_message(delta, f"{self.seat}: {self.__class__.__name__}({self.arg}) applies to {seat}. {-total}")
+
+def generate_curses(type_):
+    def apply(self, gamestate, delta):
+        selection = gamestate.get(self.seat).selection.slot
+        if TYPES[gamestate.get(self.seat).cards[selection].type] == type_:
+            super(self.__class__, self).apply(gamestate, delta)
+        else:
+            add_message(delta, f"{self.seat}: {self.__class__.__name__} fades")
+    name = f"{type_}Curse"
+    globals()[name] = type(name, (Curse,), {'apply': apply})
+[generate_curses(t) for t in TYPELIST]
 
 effect_params = ['gamestate', 'history', 'seat', 'player', 'other', 'timing_bonus', 'level', 'badges_apply', 'delta']
 class RPSCard(object):
 
+    badge_multiplier = 1
     decks = ['basic']
 
     # called on every subclass
@@ -87,7 +106,6 @@ class RPSCard(object):
 
     @classmethod
     def get_badges(cls, seat, player, type):
-        s()
         badges = map(lambda name, args, round: next(filter(lambda c: c.__name__ == name, descendants(Badge)))(seat, args, round), *mzip(*player.badges))
         return filter(lambda badge: type in badge.types, badges)
 
@@ -107,11 +125,12 @@ class RPSCard(object):
         badge_types = list(badge_tuple or (cls.abilities[ability_number].__name__,))
 
         badges_used = []
-        if badges_apply:
-            for badge_type in badge_types:
-                for badge in cls.get_badges(seat, player, badge_type):
-                    if badge.apply(gamestate, delta) != 'skip':
-                        badges_used.append(badge.json())
+        for i in range(cls.badge_multiplier):
+            if badges_apply:
+                for badge_type in badge_types:
+                    for badge in cls.get_badges(seat, player, badge_type):
+                        if badge.apply(gamestate, delta) != 'skip':
+                            badges_used.append(badge.json())
         # the same badge can apply to two abilities of one card, so a set avoids duplication
         delta.get(seat).badges_used = unluple(luple(gamestate.get(seat).badges_used) | luple(badges_used))
 
@@ -129,7 +148,7 @@ class RPSCard(object):
         return delta
 
     def start(cls):
-        return 'start'
+        return ('start',)
 
     def level_up(cls):
         if badges_apply:
@@ -138,7 +157,7 @@ class RPSCard(object):
             card.cracked = False
             update(delta, {seat: {'cards': {'set': (card.slot, card)}}})
             add_message(delta, f'{seat}: {card.name} levels up')
-            return 'level_up'
+            return ('level_up',)
 
     def level_damage(cls):
         if badges_apply:
@@ -152,7 +171,7 @@ class RPSCard(object):
                 card.cracked = True
                 add_message(delta, f'{opp(seat)}: {card.name} cracks')
             update(delta, {opp(seat): {'cards': {'set': (card.slot, card)}}})
-            return 'level_damage'
+            return ('level_damage',)
 
 
 # 1,2 timing bonuses, l level scaling, o other scaling
@@ -190,8 +209,9 @@ class Napkin(RPSCard):
     def damage(cls):
         other_ability = other.selection.slot
         other_level = other.cards[other_ability].level
-        damage(delta, opp(seat), 4 * other_level)
-        add_message(delta, f"{seat}: [1]Napkin hits! [o]{other_level}[/o][/1]")
+        total = 4 * other_level
+        damage(delta, opp(seat), total)
+        add_message(delta, f"{seat}: [1]Napkin hits! 4[o]({other_level})[/o] = {total}[/1]")
 
     def shield(cls):
         if timing_bonus == 2:
@@ -221,7 +241,7 @@ class ButterKnife(RPSCard):
             duration = 2
         opposing_ability = other.selection.slot
         if opposing_ability not in [TRUCE, INCOME]:
-            source = f"{opp(seat)}'s ButterKnife @ round {gamestate.meta.round}"
+            source = f"{seat}'s ButterKnife @ round {gamestate.meta.round}"
             rest = Disabled(opposing_ability, source, duration)
             update(delta, {opp(seat): {'restrictions': {'dins': rest.json()}}})
             opposing_name = other.cards[opposing_ability].name
@@ -276,7 +296,6 @@ class Book(RPSCard):
         update(delta, {seat: {'cards': {'set': (4, card)}}})
 
     def level(cls):
-        s()
         if timing_bonus >= 1:
             prev_frame = Game.intermediate_states(history, -1, last_only=True)
             prev_slot = prev_frame[seat].selection.slot
@@ -306,22 +325,73 @@ class Wirecutter(RPSCard):
 class Mountain(RPSCard):
 
     type = ROCK
-    ability_order = []
+    ability_order = ['damage', 'crack']
     slot = 6
+    badge_multiplier = 2
 
+    def damage(cls):
+        total = 15 + 2 * level
+        damage(delta, opp(seat), total)
+        add_message(delta, f"{seat}: Mountain hits! 15 + [l]{level} * 2[/l] = {total}")
+
+    def crack(cls):
+        other_type = other.cards[other.selection.slot].type
+        cards_to_crack = [card for card in other.cards if card.type == other_type]
+        for card in cards_to_crack:
+            card.cracked = True
+            update(delta, {opp(seat): {'cards': {card.slot: card}}})
+        cards_to_crack = list(map(lambda card: card['name'], cards_to_crack))
+        add_message(delta, f"{seat}: Mountain cracks all {opp(seat)} {TYPES[other_type]} cards! ({cards_to_crack})")
 
 class Contract(RPSCard):
 
     type = PAPER
-    ability_order = []
+    ability_order = ['damage', 'shield', 'badge']
     slot = 7
 
+    def damage(cls):
+        dmg = 7
+        damage(delta, opp(seat), dmg)
+        add_message(delta, f"{seat}: Contract hits! 7")
+
+    def shield(cls):
+        update(delta, {seat: {'shields': (('add', 1),)}})
+        add_message(delta, f"{seat}: Contract grants a shield")
+
+    def badge(cls):
+        other_type = other.cards[other.selection.slot].type
+        if other_type < 0:
+            add_message(delta, f"{seat}: Can't make a Contract with nothing!")
+            return
+        typename = TYPES[other_type]
+        bonus = 5 * level
+        total = 25 + bonus
+        update(delta, {opp(seat): {'badges': {'dins': [f'{typename}Curse', total, gamestate.meta.round]}}})
+        add_message(delta, f"{seat}: Contract grants {opp(seat)} {typename}Curse({total})")
 
 class TwoHander(RPSCard):
 
     type = SCISSORS
-    ability_order = []
+    ability_order = ['damage', 'disable']
     slot = 8
+
+    def damage(cls):
+        dmg = 8 * level
+        damage(delta, opp(seat), dmg)
+        add_message(delta, f"{seat}: TwoHander hits! 8[l]({level})[/l] = {dmg}")
+
+    def disable(cls):
+        if other.cards[other.selection.slot].cracked:
+            source = f"{seat}'s TwoHander @ round {gamestate.meta.round}"
+            for i in range(9):
+                rest = Disabled(i, source, 1)
+                update(delta, {opp(seat): {'restrictions': {'dins': rest.json()}}})
+            rest = Disabled(8, source, 3)
+            update(delta, {seat: {'restrictions': {'dins': rest.json()}}})
+            add_message(delta, f"{seat}: TwoHander disables everything for 1 round! TwoHander is disabled for 3 rounds.")
+        else:
+            add_message(delta, f"{seat}: TwoHander does not sense weakness!")
+
 
 class Truce(RPSCard):
 

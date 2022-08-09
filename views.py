@@ -19,6 +19,8 @@ reserved_names = ['']
 
 
 def pause_others(game):
+    if game.status == FINISHED:
+        return
     game.status = ACTIVE
     game.save()
     for g in (Game.objects.filter(status=ACTIVE) | \
