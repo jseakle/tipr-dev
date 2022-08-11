@@ -10,7 +10,7 @@ class RPSRules(object):
     keyframe_name = 'round'
 
     DEFAULT_OPTIONS = {
-        'timer': 1,
+        'timer': 7,
         'player_count': 2,
     }
     stage_dict = {'1': [], '2': [], '3': []}
@@ -111,11 +111,9 @@ class RPSRules(object):
         delta = empty_delta()
         match gamestate.meta.stage:
             case 1 | 2 as st:
-                add_message(delta, f'Stage {st}')
                 delta.meta.stage = st + 1
                 return delta
             case 3:
-                add_message(delta, f'Stage 3')
                 # Box(seat, stage, card)
                 p1_selection, p2_selection = self.get_selections(gamestate)
                 happens_first = Box(owner=None, slot=None, level=0, timing=0)
@@ -260,7 +258,7 @@ class RPSRules(object):
         if game.gamestate['meta']['stage'] <= 3:
             return game.options['timer']
         else:
-            return 1
+            return 2
 
 
 

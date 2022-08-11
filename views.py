@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from django.core.cache import cache
+from django.db import transaction
 
 from tipr.utils import *
 from django.http.response import JsonResponse, HttpResponse
@@ -20,6 +21,8 @@ reserved_names = ['']
 
 def pause_others(game):
     if game.status == FINISHED:
+        return
+    if not all(game.people[1]):
         return
     game.status = ACTIVE
     game.save()
@@ -91,84 +94,126 @@ class Load(View):
 
 class Update(View):
     def post(self, request):
+        with transaction.atomic():
+            now = tznow()
+            name = request.session.get('name')
+            id = request.session.get('gameid')
 
-        now = tznow()
-        name = request.session.get('name')
-        id = request.session.get('gameid')
-
-        if id:
-            game = Game.objects.filter(pk=id)
-        else:
-            game = None
-        if not game:
-            return JsonResponse({'error': 'This game does not exist'})
-        game = game.get()
-
-        rules = rules_classes[game.type]
-        seat = get_seat(game, name)
-
-        def render_gameboard():
-            response = Box()
-            gameboard_context = game.response(rules.response(game, seat), now)
-            gameboard_context.seat = ('p1', 'p2', 'spectating')[seat]
-            response.gameboard = render(request, 'gameboard.html', gameboard_context).content.decode()
-            response.timer = render(request, 'timer.html', gameboard_context).content.decode()
-            response.chat = render(request, 'chat.html', {'chat_log': game.chat_log}).content.decode()
-            load = request.POST.get('load') == 'true'
-            if not load and response.gameboard == cache.get(f'{name}_gameboard'):
-                response.gameboard = 'U'
+            if id:
+                game = Game.objects.filter(pk=id)
             else:
-                cache.set(f'{name}_gameboard', response.gameboard)
-            if not load and response.chat == cache.get(f'{id}_chat'):
-                print('no change')
-                response.chat = 'U'
-            else:
-                cache.set(f'{id}_chat', response.chat)
-            return response
-
-        if seat == -1 or game.status != ACTIVE:
-            return JsonResponse(render_gameboard())
-
-        if not game.next_tick:
-            game.next_tick = rules.next_tick(game)
-            game.save()
-
-        if game.last_tick and now - game.last_tick > timedelta(seconds=game.next_tick):
-            keyframe_name = rules.keyframe_name
+                game = None
+            if not game:
+                return JsonResponse({'error': 'This game does not exist'})
+            game = game.get()
+            if game.status == CREATED:
+                return JsonResponse({'error': 'waiting for all players to be ready'})
             gamestate = Box(game.gamestate)
-            prev = gamestate.meta[keyframe_name]
-            try:
-                delta = rules.do_update(game)
-                logging.warn(f"{delta}")
-                update(gamestate, delta)
-                game.last_tick = now
-                game.next_tick = rules.next_tick(game)
-                for message in gamestate.meta.message:
-                    game.chat('system', message, now)
-                gamestate.meta.message = []
-                game.gamestate = dict(gamestate)
 
-                if gamestate.meta[keyframe_name] != prev:
-                    game.keyframe()
-                else:
-                    game.event('time', delta, now)
-                if winner := rules.winner(game):
-                    if winner == 'tie':
-                        msg = "Tie game!"
+            rules = rules_classes[game.type]
+            seat = get_seat(game, name)
+
+            def render_gameboard():
+                response = Box()
+                gamestate = Box(game.gamestate)
+                gameboard_context = game.response(rules.response(game, seat), now)
+                gameboard_context.seat = ('p1', 'p2', 'spectating')[seat]
+                cards = []
+                highest_slot = gamestate.meta.stage * 3 if gamestate.meta.stage < 4 else -1
+                for card_dict in gamestate.p1.cards[:-2]:
+                    card = Box(card_dict)
+                    other = Box(gamestate.p2.cards[card.slot])
+                    card.name = f"{card.level}{'X' if card.cracked else ''} {card.name} {other.level}{'X' if other.cracked else ''}"
+                    if gamestate.meta.stage < 4:
+                        card.color = '#4CAF50' if card.slot < highest_slot else '#FFF'
                     else:
-                        msg = f"{winner} wins!"
-                    game.chat('system', msg, now)
-                    game.status = FINISHED
-                    game.save()
-            except Exception as e:
-                logging.exception(f'rewinding')
-                s()
-                message = f'error doing timed update: {e}\nresetting to {keyframe_name} {prev}'
-                game.chat('system', message, now)
-                game.rewind(1, message)
+                        if card.slot == gamestate.p1.selection.get('slot'):
+                            card.color = '#008CBA'
+                        elif card.slot == gamestate.p2.selection.get('slot'):
+                            card.color = '#f44336'
+                        else:
+                            card.color = '#FFF'
+                    cards.append(card)
+                gameboard_context.cards = cards
+                gameboard_context.p1_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p1.badges]
+                gameboard_context.p2_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p2.badges]
+
+
+                gameboard_context.selections = [] if gamestate.meta.stage < 4 else [gamestate.p1.selection.slot, gamestate.p2.selection.slot]
+                response.gameboard = render(request, 'gameboard.html', gameboard_context).content.decode()
+                response.timer = render(request, 'timer.html', gameboard_context).content.decode()
+                response.chat = render(request, 'chat.html', {'chat_log': game.chat_log}).content.decode()
+                load = request.POST.get('load') == 'true'
+                if not load and response.gameboard == cache.get(f'{name}_gameboard'):
+                    response.gameboard = 'U'
+                else:
+                    cache.set(f'{name}_gameboard', response.gameboard)
+                if not load and response.chat == cache.get(f'{name}_chat'):
+                    response.chat = 'U'
+                else:
+                    cache.set(f'{name}_chat', response.chat)
+                return response
+
+            if seat == -1 or game.status != ACTIVE:
                 return JsonResponse(render_gameboard())
 
-        return JsonResponse(render_gameboard())
+            if game.next_tick is None:
+                game.next_tick = rules.next_tick(game)
+                game.save()
+            if game.last_tick is None:
+                game.last_tick = now
+                game.save()
+
+            ticked = False
+            print('&&', game.next_tick, now, game.last_tick, now - game.last_tick)
+            if (game.last_tick and now - game.last_tick > timedelta(seconds=game.next_tick)) or \
+                    (gamestate.meta.stage < 4 and any(gamestate.p1.stages.values()) and any(gamestate.p2.stages.values())):
+                print('!!!', (now - game.last_tick).microseconds)
+                ticked = True
+                keyframe_name = rules.keyframe_name
+                prev = gamestate.meta[keyframe_name]
+                try:
+                    delta = rules.do_update(game)
+                    logging.warn(f"{delta}")
+                    update(gamestate, delta)
+                    messages = len(gamestate.meta.message)
+                    for message in gamestate.meta.message:
+                        game.chat('system', message, now)
+                    gamestate.meta.message = []
+                    game.gamestate = dict(gamestate)
+                    if (gamestate.meta.stage == 4 and not messages):
+                        game.next_tick = 0
+                    else:
+                        game.next_tick = rules.next_tick(game)
+
+                    if gamestate.meta[keyframe_name] != prev:
+                        game.keyframe()
+                    else:
+                        game.event('time', delta, now)
+                    if winner := rules.winner(game):
+                        if winner == 'tie':
+                            msg = "Tie game!"
+                        else:
+                            msg = f"{winner} wins!"
+                        game.chat('system', msg, now)
+                        game.status = FINISHED
+                        game.save()
+                except Exception as e:
+                    logging.exception(f'rewinding')
+                    s()
+                    message = f'error doing timed update: {e}\nresetting to {keyframe_name} {prev}'
+                    game.chat('system', message, now)
+                    game.rewind(1, message)
+                    return JsonResponse(render_gameboard())
+
+            gameboard = render_gameboard()
+            if ticked:
+                print(f'setting last_tick to {now}')
+                game.last_tick = now
+                game.save()
+                game.refresh_from_db()
+                print(game.last_tick)
+            return JsonResponse(gameboard)
 
 class Submit(View):
     def post(self, request):

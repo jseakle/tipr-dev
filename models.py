@@ -58,15 +58,20 @@ class Game(models.Model):
         return Box(frame)
 
     def response(self, prepared_gamestate, now, full=False):
-        if not self.next_tick:
-            duration = -1
+        if not self.last_tick:
+            self.last_tick = now
+            self.save()
+        if self.status != ACTIVE:
+            duration = 0
+            remaining = 0
+        elif not self.next_tick:
+            duration = 0
             remaining = 0
         else:
             duration = self.next_tick
-            if not self.last_tick:
-                self.last_tick = now
-                self.save()
-            remaining = duration - (now - self.last_tick).seconds
+            remaining = duration - ((now - self.last_tick).seconds) #round(duration - ((now - self.last_tick).seconds + (now - self.last_tick).microseconds / 1000000), 2)
+            if remaining <= 0:
+                remaining = 1
         return Box({
             'timer_duration': duration,
             'time_remaining': remaining,

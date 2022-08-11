@@ -1,3 +1,12 @@
 Hi {{ request.session.name }}, you are {{ seat }}<br>
-<pre><div id="board"></div></pre>
-{{ gamestate|json_script:"board_json" }}
+<div id="board">
+    <span style="background:#008CBA">{{ gamestate.p1.hp }}</span>
+    <span style="background:#f44336">{{ gamestate.p2.hp }}</span><br>
+{% for card in cards %}
+<button style="background-color:{{ card.color }};" name="{{ card.name }}" onclick="submit('{{ forloop.counter0 }}')">
+    {{ card.name }}</button>
+{% if forloop.counter|divisibleby:3 == 1 %}<br>{% endif %}
+{% endfor %}
+</div>
+<span style="background:#008CBA">{{ p1_badges }}</span>
+<span style="background:#f44336">{{ p2_badges }}</span>

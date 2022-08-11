@@ -65,10 +65,10 @@ class LvlBonus(Badge):
     def apply(self, gamestate, delta):
         for seat in seats:
             if seat in delta:
-                for name, card in delta.get(seat).cards.items():
-                    if card.level > gamestate.get(seat).cards.get(name).level:
+                for card in update(gamestate, delta).get(seat).cards:
+                    if card.level > gamestate.get(seat).cards[card.slot].level:
                         card.level += 2
-                        add_message(delta, f"{self.seat}: LvlBonus(+{self.arg}) applies to {seat}'s {name}.")
+                        add_message(delta, f"{self.seat}: LvlBonus(+{self.arg}) applies to {seat}'s {card.name}.")
 
 class Curse(Badge):
     types = 'start'
@@ -105,9 +105,9 @@ class RPSCard(object):
         cls.abilities[len(cls.ability_order)+3] = cls.start
 
     @classmethod
-    def get_badges(cls, seat, player, type):
+    def get_badges(cls, seat, player, type, round):
         badges = map(lambda name, args, round: next(filter(lambda c: c.__name__ == name, descendants(Badge)))(seat, args, round), *mzip(*player.badges))
-        return filter(lambda badge: type in badge.types, badges)
+        return filter(lambda badge: type in badge.types and badge.round < round, badges)  # don't apply badges earned this round
 
     @classmethod
     def apply(cls, gamestate, history, seat):
@@ -128,11 +128,12 @@ class RPSCard(object):
         for i in range(cls.badge_multiplier):
             if badges_apply:
                 for badge_type in badge_types:
-                    for badge in cls.get_badges(seat, player, badge_type):
+                    for badge in cls.get_badges(seat, player, badge_type, gamestate.meta.round):
                         if badge.apply(gamestate, delta) != 'skip':
                             badges_used.append(badge.json())
-        # the same badge can apply to two abilities of one card, so a set avoids duplication
-        delta.get(seat).badges_used = unluple(luple(gamestate.get(seat).badges_used) | luple(badges_used))
+        if badges_used:
+            # the same badge can apply to two abilities of one card, so a set avoids duplication
+            delta.get(seat).badges_used = unluple(luple(gamestate.get(seat).badges_used) | luple(badges_used))
 
         if 'damage' in badge_types and other.shields > 0:
             delta.ga(opp(seat)).shields = other.shields - 1
@@ -285,7 +286,7 @@ class Book(RPSCard):
     def respec(cls):
         prev_frame = Game.intermediate_states(history, -2, last_only=True)
         card = player.cards[4]
-        if not prev_frame:
+        if not prev_frame or player.cards[prev_frame.info[seat].selection.slot].type == -1:
             card.type = PAPER
             add_message(delta, f"{seat}: Book reverts to paper, since no type was chosen last turn.")
         else:
@@ -297,13 +298,16 @@ class Book(RPSCard):
 
     def level(cls):
         if timing_bonus >= 1:
-            prev_frame = Game.intermediate_states(history, -1, last_only=True)
-            prev_slot = prev_frame[seat].selection.slot
+            prev_frame = Game.intermediate_states(history, -2, last_only=True)
+            if not prev_frame or player.cards[prev_frame.info[seat].selection.slot].type == -1:
+                add_message(delta, f"{seat}: [1]Can't level up nothing![/1]")
+                return
+            prev_slot = prev_frame.info[seat].selection.slot
             card = player.cards[prev_slot]
             card.cracked = False
             card.level += 2
             update(delta, {seat: {'cards': {'set': (prev_slot, card)}}})
-            add_message(delta, f"{seat}: [1]{prev_card.name} levels up twice![/1] (Book)")
+            add_message(delta, f"{seat}: [1]{card.name} levels up twice![/1] (Book)")
 
 class Wirecutter(RPSCard):
 

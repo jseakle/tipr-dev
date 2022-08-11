@@ -28,8 +28,11 @@
             $('#movestat').html(response.responseJSON['error'])
         });
     }
+    $.ajaxSetup({
+        timeout: 120
+    });
     var timer = new Timer({
-        fps: 10,
+        fps: 9,
         run: function () {
             if($('#gameboard').is(':empty')) {
                 load = true;
@@ -39,19 +42,19 @@
                 if ('error' in response) {
                     $('#game').html(response['error'])
                 } else {
+                    $('#timer').html(response['timer'])
                     if (response['gameboard'] != 'U') {
+
                         var old_height = $('#gameboard').prop('scrollHeight');
                         var old_scroll = $('#gameboard').scrollTop();
-                        $('#timer').html(response['timer'])
                         $('#gameboard').html( response['gameboard'])
-                        $('#gameboard #board').html(JSON.stringify(JSON.parse($('#gameboard #board_json').text()), null, 2))
+                        //$('#gameboard #board').html(JSON.stringify(JSON.parse($('#gameboard #board_json').text()), null, 2))
                         $('#gameboard').scrollTop(old_scroll + $('#gameboard').height() - old_height);
                     }
                     if (response['chat'] != 'U') {
                         var old_scroll = $('#chat').scrollTop();
                         var remaining = $('#chat').prop('scrollHeight')- ($('#chat').scrollTop() + $('#chat').height());
                         $('#chat_container').html(response['chat']);
-                        console.log(remaining)
                         if(remaining > 20) {
                             $('#chat').scrollTop(old_scroll);
                         } else {
@@ -61,7 +64,7 @@
                     }
                 }
             }).fail(function (response) {
-                console.log(response)
+                //console.log(response)
             });
             load = false;
         }
@@ -76,10 +79,6 @@
 <button name="sit" onclick="sit(0)">sit0</button>
 <button name="sit" onclick="sit(1)">sit1</button>
 <div id="sitstat"></div>
-{% for card in game.options.deck|slice:":-2" %}
-<button name="{{ card }}" onclick="submit('{{ forloop.counter0 }}')">{{ card }}</button>
-{% if forloop.counter|divisibleby:3 == 1 %}<br>{% endif %}
-{% endfor %}
 <div id="movestat"></div>
 <div id="timer"></div>
 <div id="gameboard"></div>
