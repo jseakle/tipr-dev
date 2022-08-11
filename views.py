@@ -113,10 +113,17 @@ class Update(View):
             gameboard_context.seat = ('p1', 'p2', 'spectating')[seat]
             response.gameboard = render(request, 'gameboard.html', gameboard_context).content.decode()
             response.timer = render(request, 'timer.html', gameboard_context).content.decode()
-            if not request.POST.get('load') and response.gameboard == cache.get(f'{name}_gameboard'):
+            response.chat = render(request, 'chat.html', {'chat_log': game.chat_log}).content.decode()
+            load = request.POST.get('load') == 'true'
+            if not load and response.gameboard == cache.get(f'{name}_gameboard'):
                 response.gameboard = 'U'
             else:
                 cache.set(f'{name}_gameboard', response.gameboard)
+            if not load and response.chat == cache.get(f'{id}_chat'):
+                print('no change')
+                response.chat = 'U'
+            else:
+                cache.set(f'{id}_chat', response.chat)
             return response
 
         if seat == -1 or game.status != ACTIVE:

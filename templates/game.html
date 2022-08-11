@@ -29,21 +29,36 @@
         });
     }
     var timer = new Timer({
-        fps: .000002,
+        fps: 10,
         run: function () {
             if($('#gameboard').is(':empty')) {
                 load = true;
+                console.log('loading')
             }
            $.post('../update/', {load: load}, function (response) {
                 if ('error' in response) {
                     $('#game').html(response['error'])
                 } else {
                     if (response['gameboard'] != 'U') {
+                        var old_height = $('#gameboard').prop('scrollHeight');
+                        var old_scroll = $('#gameboard').scrollTop();
+                        $('#timer').html(response['timer'])
                         $('#gameboard').html( response['gameboard'])
                         $('#gameboard #board').html(JSON.stringify(JSON.parse($('#gameboard #board_json').text()), null, 2))
+                        $('#gameboard').scrollTop(old_scroll + $('#gameboard').height() - old_height);
                     }
-                     $('#timer').html( response['timer'])
-                    console.log(response)
+                    if (response['chat'] != 'U') {
+                        var old_scroll = $('#chat').scrollTop();
+                        var remaining = $('#chat').prop('scrollHeight')- ($('#chat').scrollTop() + $('#chat').height());
+                        $('#chat_container').html(response['chat']);
+                        console.log(remaining)
+                        if(remaining > 20) {
+                            $('#chat').scrollTop(old_scroll);
+                        } else {
+                            $('#chat').scrollTop($('#chat').prop('scrollHeight'));
+                        }
+                        //console.log(response)
+                    }
                 }
             }).fail(function (response) {
                 console.log(response)
@@ -57,17 +72,17 @@
 {% endblock extra_js %}
 
 {% block content %}
+<div style="height:70%;width:98%;position:fixed;top:0;border:1px solid #ccc;overflow:auto">
 <button name="sit" onclick="sit(0)">sit0</button>
 <button name="sit" onclick="sit(1)">sit1</button>
 <div id="sitstat"></div>
-{% for card in game.options.deck %}
+{% for card in game.options.deck|slice:":-2" %}
 <button name="{{ card }}" onclick="submit('{{ forloop.counter0 }}')">{{ card }}</button>
 {% if forloop.counter|divisibleby:3 == 1 %}<br>{% endif %}
 {% endfor %}
 <div id="movestat"></div>
 <div id="timer"></div>
-<div id="chat">{% for message in game.chat_log %}
-    {{ message }} <br>
-{% endfor %}</div>
 <div id="gameboard"></div>
+</div>
+<div id="chat_container"></div>
 {% endblock content %}

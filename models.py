@@ -71,7 +71,7 @@ class Game(models.Model):
             'timer_duration': duration,
             'time_remaining': remaining,
             'gamestate': prepared_gamestate,  # has meta.deck = {'name': {type, stage, text}} if full
-            'chat': self.chat_log[-50:],
+            'chat': self.chat_log,#[-50:],
             'options': self.options if full else {},
             'people': self.people[0],
         })
