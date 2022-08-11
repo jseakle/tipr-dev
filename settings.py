@@ -59,7 +59,7 @@ ROOT_URLCONF = 'tipr.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': ['tipr/templates', 'planetrip/templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -80,6 +80,7 @@ WSGI_APPLICATION = 'tipr.wsgi.application'
 
 DATABASES = {
     'default': {
+        'USER': 'postgres',
         'ENGINE': 'django.db.backends.postgresql',
         'PORT': 5804,
         'NAME': 'tipr',

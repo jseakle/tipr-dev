@@ -19,6 +19,7 @@ from django.urls import include, path, re_path
 from tipr.views import *
 
 urlpatterns = [
+    path('planetrip/', include('planetrip.urls')),    
     path('admin/', admin.site.urls),
     path('', Home.as_view(), name='home'),
     path('register/', Register.as_view(), name='register'),

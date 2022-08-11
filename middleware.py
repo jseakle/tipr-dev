@@ -6,8 +6,8 @@ def name_middleware(get_response):
     # One-time configuration and initialization.
 
     def middleware(request):
-        current_url = resolve(request.path_info).url_name
-        if request.method == 'GET' and not 'home' in current_url and not request.session.get('name'):
+        current_url = resolve(request.path_info).url_name or ''
+        if request.method == 'GET' and not 'planetrip' in current_url and not 'home' in current_url and not request.session.get('name'):
             request.session['redirected_from'] = request.path_info
             return redirect('home')
 
