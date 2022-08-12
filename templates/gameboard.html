@@ -8,5 +8,5 @@ Hi {{ request.session.name }}, you are {{ seat }}<br>
 {% if forloop.counter|divisibleby:3 == 1 %}<br>{% endif %}
 {% endfor %}
 </div>
-<span style="background:#008CBA">{{ p1_badges }}</span>
-<span style="background:#f44336">{{ p2_badges }}</span>
+<span style="background:#008CBA">{{gamestate.p1.shields.n}}🛡{{ p1_badges }}</span>
+<span style="background:#f44336">{{ p2_badges }}{{gamestate.p2.shields.n}}🛡</span>

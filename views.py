@@ -109,6 +109,7 @@ class Update(View):
             if game.status == CREATED:
                 return JsonResponse({'error': 'waiting for all players to be ready'})
             gamestate = Box(game.gamestate)
+            stage = gamestate.meta.stage
 
             rules = rules_classes[game.type]
             seat = get_seat(game, name)
@@ -116,15 +117,16 @@ class Update(View):
             def render_gameboard():
                 response = Box()
                 gamestate = Box(game.gamestate)
+                stage = gamestate.meta.stage
                 gameboard_context = game.response(rules.response(game, seat), now)
                 gameboard_context.seat = ('p1', 'p2', 'spectating')[seat]
                 cards = []
-                highest_slot = gamestate.meta.stage * 3 if gamestate.meta.stage < 4 else -1
+                highest_slot = stage * 3 if stage < 4 else -1
                 for card_dict in gamestate.p1.cards[:-2]:
                     card = Box(card_dict)
                     other = Box(gamestate.p2.cards[card.slot])
                     card.name = f"{card.level}{'X' if card.cracked else ''} {card.name} {other.level}{'X' if other.cracked else ''}"
-                    if gamestate.meta.stage < 4:
+                    if stage < 4:
                         card.color = '#4CAF50' if card.slot < highest_slot else '#FFF'
                     else:
                         if card.slot == gamestate.p1.selection.get('slot'):
@@ -138,8 +140,7 @@ class Update(View):
                 gameboard_context.p1_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p1.badges]
                 gameboard_context.p2_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p2.badges]
 
-
-                gameboard_context.selections = [] if gamestate.meta.stage < 4 else [gamestate.p1.selection.slot, gamestate.p2.selection.slot]
+                gameboard_context.selections = [] if stage < 4 else [gamestate.p1.selection.slot, gamestate.p2.selection.slot]
                 response.gameboard = render(request, 'gameboard.html', gameboard_context).content.decode()
                 response.timer = render(request, 'timer.html', gameboard_context).content.decode()
                 response.chat = render(request, 'chat.html', {'chat_log': game.chat_log}).content.decode()
@@ -157,6 +158,7 @@ class Update(View):
             if seat == -1 or game.status != ACTIVE:
                 return JsonResponse(render_gameboard())
 
+            # account for start of game conditions
             if game.next_tick is None:
                 game.next_tick = rules.next_tick(game)
                 game.save()
@@ -165,10 +167,8 @@ class Update(View):
                 game.save()
 
             ticked = False
-            print('&&', game.next_tick, now, game.last_tick, now - game.last_tick)
-            if (game.last_tick and now - game.last_tick > timedelta(seconds=game.next_tick)) or \
-                    (gamestate.meta.stage < 4 and any(gamestate.p1.stages.values()) and any(gamestate.p2.stages.values())):
-                print('!!!', (now - game.last_tick).microseconds)
+            if ((game.options['timed'] or stage == 4) and game.last_tick and now - game.last_tick > timedelta(seconds=game.next_tick)) or \
+                    (stage < 4 and any(gamestate.p1.stages.values()) and any(gamestate.p2.stages.values())):
                 ticked = True
                 keyframe_name = rules.keyframe_name
                 prev = gamestate.meta[keyframe_name]
@@ -181,23 +181,22 @@ class Update(View):
                         game.chat('system', message, now)
                     gamestate.meta.message = []
                     game.gamestate = dict(gamestate)
-                    if (gamestate.meta.stage == 4 and not messages):
+                    if stage == 4 and not messages:
                         game.next_tick = 0
                     else:
                         game.next_tick = rules.next_tick(game)
 
                     if gamestate.meta[keyframe_name] != prev:
+                        if winner := rules.winner(game):
+                            if winner == 'tie':
+                                msg = "Tie game!"
+                            else:
+                                msg = f"{winner} wins!"
+                            game.chat('system', msg, now)
+                            game.status = FINISHED
                         game.keyframe()
                     else:
                         game.event('time', delta, now)
-                    if winner := rules.winner(game):
-                        if winner == 'tie':
-                            msg = "Tie game!"
-                        else:
-                            msg = f"{winner} wins!"
-                        game.chat('system', msg, now)
-                        game.status = FINISHED
-                        game.save()
                 except Exception as e:
                     logging.exception(f'rewinding')
                     s()
@@ -208,11 +207,9 @@ class Update(View):
 
             gameboard = render_gameboard()
             if ticked:
-                print(f'setting last_tick to {now}')
                 game.last_tick = now
                 game.save()
                 game.refresh_from_db()
-                print(game.last_tick)
             return JsonResponse(gameboard)
 
 class Submit(View):

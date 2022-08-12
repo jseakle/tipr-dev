@@ -28,11 +28,8 @@
             $('#movestat').html(response.responseJSON['error'])
         });
     }
-    $.ajaxSetup({
-        timeout: 120
-    });
     var timer = new Timer({
-        fps: 9,
+        fps: 8,
         run: function () {
             if($('#gameboard').is(':empty')) {
                 load = true;

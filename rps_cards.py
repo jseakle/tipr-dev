@@ -135,8 +135,8 @@ class RPSCard(object):
             # the same badge can apply to two abilities of one card, so a set avoids duplication
             delta.get(seat).badges_used = unluple(luple(gamestate.get(seat).badges_used) | luple(badges_used))
 
-        if 'damage' in badge_types and other.shields > 0:
-            delta.ga(opp(seat)).shields = other.shields - 1
+        if 'damage' in badge_types and other.shields.n > 0 and other.shields.n > other.shields.this_turn:
+            delta.ga(opp(seat)).ga('shields').n = other.shields.n - 1
             add_message(delta, f"{opp(seat)}: Shield prevented {-combine_numeric_modifiers(delta.ga(opp(seat)).get('hp'))} dmg")
             update(delta, {opp(seat): {'hp': (('mul', 0),)}})
 
@@ -216,7 +216,7 @@ class Napkin(RPSCard):
 
     def shield(cls):
         if timing_bonus == 2:
-            update(delta, {seat: {'shields': (('add', 1),)}})
+            shields(delta, seat, 1)
             add_message(delta, f"{seat}: [2]Napkin grants a shield[/2]")
 
 
@@ -343,7 +343,7 @@ class Mountain(RPSCard):
         cards_to_crack = [card for card in other.cards if card.type == other_type]
         for card in cards_to_crack:
             card.cracked = True
-            update(delta, {opp(seat): {'cards': {card.slot: card}}})
+            update(delta, {opp(seat): {'cards': other.cards}})
         cards_to_crack = list(map(lambda card: card['name'], cards_to_crack))
         add_message(delta, f"{seat}: Mountain cracks all {opp(seat)} {TYPES[other_type]} cards! ({cards_to_crack})")
 
@@ -359,7 +359,7 @@ class Contract(RPSCard):
         add_message(delta, f"{seat}: Contract hits! 7")
 
     def shield(cls):
-        update(delta, {seat: {'shields': (('add', 1),)}})
+        shields(delta, seat, 1)
         add_message(delta, f"{seat}: Contract grants a shield")
 
     def badge(cls):

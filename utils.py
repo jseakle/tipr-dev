@@ -122,6 +122,9 @@ def damage(delta, who, amt, mul=False):
     else:
         update(delta, {who: {'hp': (('add', -amt),)}})
 
+def shields(delta, who, count):
+    update(delta, {who: {'shields': {'n': (('add', count),), 'this_turn': (('add', count),)}}})
+
 def mzip(*lists):
     if not lists:
         return [[]]

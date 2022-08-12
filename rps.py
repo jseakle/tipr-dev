@@ -10,6 +10,7 @@ class RPSRules(object):
     keyframe_name = 'round'
 
     DEFAULT_OPTIONS = {
+        'timed': False,
         'timer': 7,
         'player_count': 2,
     }
@@ -25,7 +26,7 @@ class RPSRules(object):
             'selection': {},  # {slot, ability_number, stage, timing}. Used for tracking in stage 4.
             'badges': [],  # [[Name, Arg, Round], ..]
             'badges_used': [],  # remembering during ability resolution
-            'shields': 0,
+            'shields': {'n': 0, 'this_turn': 0},
             'restrictions': [],  # [[Name, Arg, Source ("<ability> @ round #"), Duration], ..]
             'stages': RPSRules.stage_dict,
             'cards': [{'name': card.__name__, 'level': 1, 'cracked': False, 'type': card.type, 'slot': card.slot}
@@ -188,10 +189,15 @@ class RPSRules(object):
                 else:
                     if not (selection := gamestate.get(inactive_player).selection).ability_number:  # done
                         round = gamestate.meta.round
-                        delta.meta = {'round': round + 1, 'stage': 1, 'outcome': 'del'}
+                        delta.meta = {'round': round + 1, 'outcome': 'del'}
+                        if options.timed:
+                            delta.meta.stage = 1
+                        else:
+                            delta.meta.stage = 3
                         for seat in seats:
                             delta.ga(seat).stages = RPSRules.stage_dict
                             delta.get(seat).selection = 'del'
+                            delta.get(seat).ga('shields').this_turn = 0
 
                         add_message(delta, f'round {round} ends')
                         logging.warn(f"ONE: {delta}")
@@ -228,16 +234,18 @@ class RPSRules(object):
     def move(self, game, seat, move):
         if not game.status == ACTIVE:
             return {'error': f'game is {game.status}'}
-        return self.pure_move(Box(game.options), Box(game.gamestate), game.history, f"p{seat+1}", Box(move))
-
-    def pure_move(self, options, gamestate, history, seat, move):
+        gamestate = Box(game.gamestate)
+        seat = f"p{seat+1}"
         if gamestate.meta.stage > 3:
             return {'error': 'between rounds'}
-
         for restriction in self.get_restrictions(gamestate, seat):
             if restriction.applies(gamestate, seat, move):
                 return {'error': f'Move rejected due to {restriction.source}'}
+        if game.options['timed']:
+            return self.pure_move(Box(game.options), gamestate, game.history, seat, Box(move))
+        return self.pure_untimed_move(Box(game.options), gamestate, game.history, seat, Box(move))
 
+    def pure_move(self, options, gamestate, history, seat, move):
         for stage in range(1,4):
             if selections := gamestate.get(seat).stages.get(str(stage)):
                 if any(filter(lambda x: x['kind'] == 'RPS', selections)):
@@ -252,6 +260,12 @@ class RPSRules(object):
             case 'coin':
                 pass
 
+        return delta
+
+    def pure_untimed_move(self, options, gamestate, history, seat, move):
+        delta = empty_delta()
+        stage = move.selection // 3 + 1
+        delta.ga(seat).stages = {n: [{'kind': 'RPS', 'slot': move.selection}] if n == stage else [] for n in range(1,4)}
         return delta
 
     def next_tick(self, game):
