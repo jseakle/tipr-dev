@@ -101,8 +101,8 @@ class RPSRules(object):
             for card in gamestate[other].cards:
                 if 'revealed' not in card:
                     gamestate[other].cards[card.slot] = history[-1][0]['info'][other]['cards'][card.slot]
-
-
+            gamestate[other].selection = {}
+            gamestate[other].stages = RPSRules.stage_dict
         return gamestate
 
     def do_update(self, game):
@@ -195,8 +195,8 @@ class RPSRules(object):
                         else:
                             delta.meta.stage = 3
                         for seat in seats:
-                            delta.ga(seat).stages = RPSRules.stage_dict
-                            delta.get(seat).selection = 'del'
+                            delta.ga(seat).stages = {'replace': RPSRules.stage_dict}
+                            delta.get(seat).selection = {'replace': {}}
                             delta.get(seat).ga('shields').this_turn = 0
 
                         add_message(delta, f'round {round} ends')
@@ -235,6 +235,7 @@ class RPSRules(object):
         if not game.status == ACTIVE:
             return {'error': f'game is {game.status}'}
         gamestate = Box(game.gamestate)
+        move = Box(move)
         seat = f"p{seat+1}"
         if gamestate.meta.stage > 3:
             return {'error': 'between rounds'}
@@ -242,8 +243,8 @@ class RPSRules(object):
             if restriction.applies(gamestate, seat, move):
                 return {'error': f'Move rejected due to {restriction.source}'}
         if game.options['timed']:
-            return self.pure_move(Box(game.options), gamestate, game.history, seat, Box(move))
-        return self.pure_untimed_move(Box(game.options), gamestate, game.history, seat, Box(move))
+            return self.pure_move(Box(game.options), gamestate, game.history, seat, move)
+        return self.pure_untimed_move(Box(game.options), gamestate, game.history, seat, move)
 
     def pure_move(self, options, gamestate, history, seat, move):
         for stage in range(1,4):
@@ -264,6 +265,8 @@ class RPSRules(object):
 
     def pure_untimed_move(self, options, gamestate, history, seat, move):
         delta = empty_delta()
+        if move.selection == -1:
+            return update(delta, {seat: {'stages': {'pass': 1}}})
         stage = move.selection // 3 + 1
         delta.ga(seat).stages = {n: [{'kind': 'RPS', 'slot': move.selection}] if n == stage else [] for n in range(1,4)}
         return delta

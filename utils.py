@@ -34,6 +34,12 @@ INCOME = 10
 
 seats = ('p1', 'p2')
 
+YELLOW = '#ffdb0d'
+BLUE = '#008CBA'
+RED = '#f44336'
+GREEN = '#4CAF50'
+WHITE = '#FFF'
+
 def opp(p):
     return seats[p=='p1']
 
@@ -103,9 +109,11 @@ def update(d, u):
                 d[k].extend(v['ins'])
             if 'set' in v:
                 d[k][v['set'][0]] = v['set'][1]
-
         elif isinstance(v, collections.abc.Mapping):
-            d[k] = update(d.get(k, {}), v)
+            if 'replace' in v:
+                d[k] = v['replace']
+            else:
+                d[k] = update(d.get(k, {}), v)
         else:
             try:
                 d[k] = v

@@ -116,9 +116,9 @@ class Update(View):
 
             def render_gameboard():
                 response = Box()
-                gamestate = Box(game.gamestate)
-                stage = gamestate.meta.stage
                 gameboard_context = game.response(rules.response(game, seat), now)
+                gamestate = Box(gameboard_context.gamestate)
+                stage = gamestate.meta.stage
                 gameboard_context.seat = ('p1', 'p2', 'spectating')[seat]
                 cards = []
                 highest_slot = stage * 3 if stage < 4 else -1
@@ -126,21 +126,29 @@ class Update(View):
                     card = Box(card_dict)
                     other = Box(gamestate.p2.cards[card.slot])
                     card.name = f"{card.level}{'X' if card.cracked else ''} {card.name} {other.level}{'X' if other.cracked else ''}"
-                    if stage < 4:
-                        card.color = '#4CAF50' if card.slot < highest_slot else '#FFF'
+                    if stage < 4 and game.options['timed']:
+                        card.color = GREEN if card.slot < highest_slot else '#FFF'
                     else:
-                        if card.slot == gamestate.p1.selection.get('slot'):
-                            card.color = '#008CBA'
-                        elif card.slot == gamestate.p2.selection.get('slot'):
-                            card.color = '#f44336'
+                        selections = rules.get_selections(gamestate)
+                        p1_slot = selections[0].card.slot if selections[0] else None
+                        p2_slot = selections[1].card.slot if selections[1] else None
+                        if card.slot == p1_slot == p2_slot:
+                            card.color = YELLOW
+                        elif card.slot == p1_slot:
+                            card.color = BLUE
+                        elif card.slot == p2_slot:
+                            card.color = RED
                         else:
-                            card.color = '#FFF'
+                            card.color = WHITE
                     cards.append(card)
+
+                pass_color = ('pass' in gamestate.p1.stages) + ('pass' in gamestate.p2.stages) * 2
+                gameboard_context.pass_color = [WHITE, BLUE, RED, YELLOW][pass_color]
                 gameboard_context.cards = cards
                 gameboard_context.p1_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p1.badges]
                 gameboard_context.p2_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p2.badges]
-
                 gameboard_context.selections = [] if stage < 4 else [gamestate.p1.selection.slot, gamestate.p2.selection.slot]
+                gameboard_context.timed = game.options['timed']
                 response.gameboard = render(request, 'gameboard.html', gameboard_context).content.decode()
                 response.timer = render(request, 'timer.html', gameboard_context).content.decode()
                 response.chat = render(request, 'chat.html', {'chat_log': game.chat_log}).content.decode()

@@ -3,8 +3,11 @@ Hi {{ request.session.name }}, you are {{ seat }}<br>
     <span style="background:#008CBA">{{ gamestate.p1.hp }}</span>
     <span style="background:#f44336">{{ gamestate.p2.hp }}</span><br>
 {% for card in cards %}
-<button style="background-color:{{ card.color }};" name="{{ card.name }}" onclick="submit('{{ forloop.counter0 }}')">
+<button style="background-color:{{ card.color }};width:130px;" name="{{ card.name }}" onclick="submit('{{ forloop.counter0 }}')">
     {{ card.name }}</button>
+{% if forloop.counter0 == 5 and not timed %}
+    &nbsp;&nbsp;&nbsp;<button style="background-color:{{ pass_color }};" name="pass" onclick="submit('-1')">Pass</button>
+{% endif %}
 {% if forloop.counter|divisibleby:3 == 1 %}<br>{% endif %}
 {% endfor %}
 </div>
