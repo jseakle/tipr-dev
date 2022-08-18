@@ -1,4 +1,4 @@
-{% if seat != 0 and not active %}
+{% if seat != 'p1' and not active %}
 <button id="sit" onclick="sit(1)">Join</button>
 {% endif %}
 Hi {{ request.session.name }}, you are {{ seat }}<br>

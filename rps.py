@@ -91,8 +91,7 @@ class RPSRules(object):
 
     def pure_response(self, options, gamestate, history, seat):
 
-        initial = gamestate.meta.round == 1 and gamestate.meta.stage == 1
-        if gamestate.meta.stage < 4 and seat != -1 and not initial:
+        if gamestate.meta.stage < 4 and seat != -1:
             # this player's current view + other player's view at last keyframe
             player = seats[seat]
             other = opp(player)

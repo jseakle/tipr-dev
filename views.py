@@ -243,7 +243,7 @@ class GamePage(View):
         request.session['gameid'] = game.pk
         return render(request, f'{game.type}.html',
                       {'game': game, 'seat': get_seat(game, request.session.get('name')),
-                       'cards': [{'slot': c.slot, 'text': c.text} for c in RPSRules.deck_text(game)]})
+                       'cards': [{'name': c.name, 'slot': c.slot, 'text': c.text} for c in RPSRules.deck_text(game)]})
 
 class GameList(View):
     def post(self, request):
