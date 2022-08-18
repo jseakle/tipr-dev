@@ -44,7 +44,6 @@
                 if ('error' in response) {
                     $('#game').html(response['error'])
                 } else {
-                    $('#timer').html(response['timer'])
                     if (response['gameboard'] != 'U') {
 
                         var old_height = $('#gameboard').prop('scrollHeight');
@@ -64,6 +63,7 @@
                         }
                         //console.log(response)
                     }
+                    $('#timer').html(response['timer'])
                 }
             }).fail(function (response) {
                 //console.log(response)
