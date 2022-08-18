@@ -22,9 +22,9 @@
         });
     }
     var timer = new Timer({
-        fps: .00002,
+        fps: 1,
         run: function () {
-            if($('#gameboard').is(':empty') ) {
+            if($('#gamelist').is(':empty') ) {
                 load = true;
             }
             $.post('gamelist/', {load: load}, function (response) {
@@ -48,14 +48,10 @@
 {% endblock extra_js %}
 
 {% block content %}
-{% if request.session.name %}
-    hello <div id="name">{{ request.session.name }}</div>
-{% endif %}
 what name you want?
-<textarea name="name"></textarea>
+<input name="name"></input>
 <button name="ok" onclick="register()">ok</button><br>
-<button name="sit" onclick="sit(0)">sit0</button>
-<button name="sit" onclick="sit(1)">sit1</button>
+<button name="sit" onclick="sit(0)">New Game</button>
 <div id="sitstat"></div><br>
 <div id="gamelist"></div>
 

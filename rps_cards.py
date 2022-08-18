@@ -94,6 +94,7 @@ class RPSCard(object):
 
     badge_multiplier = 1
     decks = ['basic']
+    text = ""
 
     # called on every subclass
     def init(cls):
@@ -181,6 +182,7 @@ class Pebble(RPSCard):
     type = ROCK
     ability_order = ['damage', 'badge']
     slot = 0
+    text = "15 damage. T1: gain a 2x damage badge. T2: +3L damage."
 
     def damage(cls):
         dmg = 15
@@ -202,6 +204,7 @@ class Napkin(RPSCard):
     type = PAPER
     ability_order = ['health', 'damage', 'shield']
     slot = 1
+    text = "L health. T1: +4X damage, where X is opposing level. T2: gain a shield."
 
     def health(cls):
         damage(delta, seat, -level)
@@ -225,6 +228,7 @@ class ButterKnife(RPSCard):
     type = SCISSORS
     ability_order = ['damage', 'disable']
     slot = 2
+    text = "10 + 2L damage. disable opposing ability for 1 turn. T1: +10 + 4L damage. T2: disable opposing ability for an additional turn. "
 
     def damage(cls):
         dmg = 10 + 2 * level
@@ -256,6 +260,7 @@ class Boulder(RPSCard):
     type = ROCK
     ability_order = ['badge']
     slot = 3
+    text = "gain a +5+5L damage badge. T1: gain a +2 level badge."
 
     def badge(cls):
         total = 5 + 5 * level
@@ -272,6 +277,7 @@ class Book(RPSCard):
     type = PAPER
     ability_order = ['damage', 'respec', 'level']
     slot = 4
+    text = "1+X damage, where X is the total level of all abilities that share a type with this one. then this ability’s type becomes the type of the ability you selected last turn, or paper if there is no such type. T1: the ability you selected last turn levels up twice."
 
     def damage(cls):
         def type_levels(type, p):
@@ -314,6 +320,7 @@ class Wirecutter(RPSCard):
     type = SCISSORS
     ability_order = ['damage', 'badge']
     slot = 5
+    text = "X damage, where X is the sum of levels of all your scissors abilities. T1: gain a badge with “if this is a scissors ability, 3x damage.”"
 
     def damage(cls):
         levels = [card.level for card in player.cards if card.type == SCISSORS]
@@ -332,6 +339,7 @@ class Mountain(RPSCard):
     ability_order = ['damage', 'crack']
     slot = 6
     badge_multiplier = 2
+    text = "15 + 2L damage. crack all opposing abilities of the opposing type. badges apply twice."
 
     def damage(cls):
         total = 15 + 2 * level
@@ -352,6 +360,7 @@ class Contract(RPSCard):
     type = PAPER
     ability_order = ['damage', 'shield', 'badge']
     slot = 7
+    text = "7 damage. gain a shield. your opponent gains an end badge with “if this is a TYPE ability, you take 25 + 5L damage”, where TYPE is the opposing type."
 
     def damage(cls):
         dmg = 7
@@ -378,6 +387,7 @@ class TwoHander(RPSCard):
     type = SCISSORS
     ability_order = ['damage', 'disable']
     slot = 8
+    text = "8L damage. if opposing ability is cracked, disable all opposing abilities for one turn and disable this for three turns."
 
     def damage(cls):
         dmg = 8 * level

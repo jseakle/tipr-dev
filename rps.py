@@ -56,9 +56,9 @@ class RPSRules(object):
 
     @functools.cache
     @staticmethod
-    def deck_text(deck):
-        return [{'name': card.__name__, 'type': card.type, 'stage': card.stage, 'text': card.text}
-                for card in deck]
+    def deck_text(game):
+        return [Box({'name': card.__name__, 'slot': card.slot, 'text': card.text})
+                for card in RPSCard.__subclasses__() if card.__name__ in game.options['deck']]
 
     def get_selections(self, gamestate, seats=seats):
         ret = []
@@ -86,12 +86,10 @@ class RPSRules(object):
             case _:
                 return f'{player} {outcome}'
 
-    def response(self, game, seat, full=False):
-        return self.pure_response(Box(game.options), Box(game.gamestate), game.history, seat, full)
+    def response(self, game, seat):
+        return self.pure_response(Box(game.options), Box(game.gamestate), game.history, seat)
 
-    def pure_response(self, options, gamestate, history, seat, full):
-        if full:
-            gamestate.meta.deck = RPSRules.deck_text(options.deck)
+    def pure_response(self, options, gamestate, history, seat):
 
         initial = gamestate.meta.round == 1 and gamestate.meta.stage == 1
         if gamestate.meta.stage < 4 and seat != -1 and not initial:

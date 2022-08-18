@@ -80,18 +80,6 @@ def get_seat(game, name):
         seat = game.people[0].index(name)  # 0 is p1
     return seat
 
-class Load(View):
-    def get(self, request):
-        name = request.session.get('name')
-        game = Game.objects.filter(people__0__contains=name, status=ACTIVE)
-        pause_others(game)
-        if not game:
-            return render(request, 'homepage.html')
-        seat = get_seat(game, name)
-        return render(request, f'{game.type}.html',
-                      game.response(rules_classes[game.type].response(game, seat, full=True),
-                                    tznow(), full=True))
-
 class Update(View):
     def post(self, request):
         with transaction.atomic():
@@ -107,7 +95,8 @@ class Update(View):
                 return JsonResponse({'error': 'This game does not exist'})
             game = game.get()
             if game.status == CREATED:
-                return JsonResponse({'error': 'waiting for all players to be ready'})
+                pass
+                #return JsonResponse({'error': 'waiting for all players to be ready'})
             gamestate = Box(game.gamestate)
             stage = gamestate.meta.stage
 
@@ -126,7 +115,7 @@ class Update(View):
                     card = Box(card_dict)
                     other = Box(gamestate.p2.cards[card.slot])
                     card.name = f"{card.level}{'X' if card.cracked else ''} {card.name} {other.level}{'X' if other.cracked else ''}"
-                    if stage < 4 and game.options['timed']:
+                    if stage < 4 and game.options.get('timed'):
                         card.color = GREEN if card.slot < highest_slot else '#FFF'
                     else:
                         selections = rules.get_selections(gamestate)
@@ -148,7 +137,8 @@ class Update(View):
                 gameboard_context.p1_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p1.badges]
                 gameboard_context.p2_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p2.badges]
                 gameboard_context.selections = [] if stage < 4 else [gamestate.p1.selection.slot, gamestate.p2.selection.slot]
-                gameboard_context.timed = game.options['timed']
+                gameboard_context.timed = game.options.get('timed')
+                gameboard_context.active = game.status == ACTIVE
                 response.gameboard = render(request, 'gameboard.html', gameboard_context).content.decode()
                 response.timer = render(request, 'timer.html', gameboard_context).content.decode()
                 response.chat = render(request, 'chat.html', {'chat_log': game.chat_log}).content.decode()
@@ -251,7 +241,9 @@ class GamePage(View):
         game = Game.objects.get(pk=id)
         pause_others(game)
         request.session['gameid'] = game.pk
-        return render(request, 'game.html', {'game': game})
+        return render(request, f'{game.type}.html',
+                      {'game': game, 'seat': get_seat(game, request.session.get('name')),
+                       'cards': [{'slot': c.slot, 'text': c.text} for c in RPSRules.deck_text(game)]})
 
 class GameList(View):
     def post(self, request):

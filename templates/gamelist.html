@@ -1,3 +1,8 @@
+{% if request.session.name %}
+    hello <span id="name">{{ request.session.name }}</span><br><br>
+{% else %}
+    please choose a name<br><br>
+{% endif %}
 My Games<br>
 {% for game in my_games %}
     <a href="game/{{ game.pk }}">{{ game.people.0.0|default:"empty" }} vs {{ game.people.0.1|default:"empty" }}</a><br>

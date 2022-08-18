@@ -24,7 +24,6 @@ urlpatterns = [
     path('', Home.as_view(), name='home'),
     path('register/', Register.as_view(), name='register'),
     path('sit/', Sit.as_view(), name='sit'),
-    path('load/', Load.as_view(), name='load'),
     path('update/', Update.as_view(), name='update'),
     path('submit/', Submit.as_view(), name='submit'),
     path('gamelist/', GameList.as_view(), name='gamelist'),

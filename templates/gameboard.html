@@ -1,9 +1,15 @@
+{% if seat != 0 and not active %}
+<button id="sit" onclick="sit(1)">Join</button>
+{% endif %}
 Hi {{ request.session.name }}, you are {{ seat }}<br>
+{% if not active %}Waiting for opponent{% endif %}
+<div id="timer"></div>
 <div id="board">
     <span style="background:#008CBA">{{ gamestate.p1.hp }}</span>
     <span style="background:#f44336">{{ gamestate.p2.hp }}</span><br>
 {% for card in cards %}
-<button style="background-color:{{ card.color }};width:130px;" name="{{ card.name }}" onclick="submit('{{ forloop.counter0 }}')">
+<button id="{{ card.slot }}_button" style="background-color:{{ card.color }};width:130px;" name="{{ card.name }}"
+        onclick="submit('{{ card.slot }}')" onmouseover="help({{ card.slot}})">
     {{ card.name }}</button>
 {% if forloop.counter0 == 5 and not timed %}
     &nbsp;&nbsp;&nbsp;<button style="background-color:{{ pass_color }};" name="pass" onclick="submit('-1')">Pass</button>
