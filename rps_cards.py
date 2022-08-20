@@ -182,14 +182,14 @@ class Pebble(RPSCard):
     type = ROCK
     ability_order = ['damage', 'badge']
     slot = 0
-    text = "15 damage. T1: gain a 2x damage badge. T2: +3L damage."
+    text = "12 damage. T1: gain a 2x damage badge. T2: +3L damage."
 
     def damage(cls):
-        dmg = 15
+        dmg = 12
         explanation = ''
         if timing_bonus == 2:
             dmg += 3 * level
-            explanation = f"15 + 3[l]({level})[/] = "
+            explanation = f"12 + 3[l]({level})[/] = "
         damage(delta, opp(seat), dmg)
         add_message(delta, f"{seat}: Pebble hits! {explanation if explanation else ''}{dmg}")
 
@@ -228,15 +228,15 @@ class ButterKnife(RPSCard):
     type = SCISSORS
     ability_order = ['damage', 'disable']
     slot = 2
-    text = "10 + 2L damage. disable opposing ability for 1 turn. T1: +10 + 4L damage. T2: disable opposing ability for an additional turn. "
+    text = "10 + 2L damage. disable opposing ability for 1 turn. T1: +10 + 2L damage. T2: disable opposing ability for an additional turn."
 
     def damage(cls):
         dmg = 10 + 2 * level
         explanation = f" 10 + 2[l]({level})[/l]"
         if timing_bonus >= 1:
             dmg += 10
-            dmg += 4 * level
-            explanation += f" [1]+ 10 + 4[l]({level})[/l][/1]"
+            dmg += 2 * level
+            explanation += f" [1]+ 10 + 2[l]({level})[/l][/1]"
         damage(delta, opp(seat), dmg)
         add_message(delta, f"{seat}: ButterKnife hits! {explanation} = {dmg}")
 
@@ -260,11 +260,11 @@ class Boulder(RPSCard):
     type = ROCK
     ability_order = ['badge']
     slot = 3
-    text = "gain a +5+5L damage badge. T1: gain a +2 level badge."
+    text = "gain a +25+5L damage badge. T1: gain a +2 level badge."
 
     def badge(cls):
-        total = 5 + 5 * level
-        explanation = f"5 + 5[l]({level})[/l]"
+        total = 25 + 5 * level
+        explanation = f"25 + 5[l]({level})[/l]"
         update(delta, {seat: {'badges': {'dins': ['DmgBonus', total, gamestate.meta.round]}}})
         add_message(delta, f"{seat}: Boulder grants DmgBonus! {explanation} = {total}")
         if timing_bonus >= 1:
@@ -277,7 +277,7 @@ class Book(RPSCard):
     type = PAPER
     ability_order = ['damage', 'respec', 'level']
     slot = 4
-    text = "1+X damage, where X is the total level of all abilities that share a type with this one. then this ability’s type becomes the type of the ability you selected last turn, or paper if there is no such type. T1: the ability you selected last turn levels up twice."
+    text = "1+7X damage, where X is the total level of all abilities that share a type with this one. then this ability’s type becomes the type of the ability you selected last turn, or paper if there is no such type. T1: the ability you selected last turn levels up twice."
 
     def damage(cls):
         def type_levels(type, p):
@@ -285,9 +285,9 @@ class Book(RPSCard):
         book_type = player.cards[4].type
         ours = type_levels(book_type, player)
         theirs = type_levels(book_type, other)
-        total = sum(ours) + sum(theirs)
+        total = 1 + 7 * (sum(ours) + sum(theirs))
         damage(delta, opp(seat), total)
-        add_message(delta, f"{seat}: Book ({TYPES[book_type]}) hits! [l]{ours}[/l] + [L]{theirs}[/L] = {total}")
+        add_message(delta, f"{seat}: Book ({TYPES[book_type]}) hits! 1 + 7([l]{ours}[/l] + [L]{theirs}[/L]) = {total}")
 
     def respec(cls):
         prev_frame = Game.intermediate_states(history, -2, last_only=True)
@@ -339,12 +339,12 @@ class Mountain(RPSCard):
     ability_order = ['damage', 'crack']
     slot = 6
     badge_multiplier = 2
-    text = "15 + 2L damage. crack all opposing abilities of the opposing type. badges apply twice."
+    text = "15 + 10L damage. crack all opposing abilities of the opposing type. badges apply twice."
 
     def damage(cls):
-        total = 15 + 2 * level
+        total = 15 + 10 * level
         damage(delta, opp(seat), total)
-        add_message(delta, f"{seat}: Mountain hits! 15 + [l]{level} * 2[/l] = {total}")
+        add_message(delta, f"{seat}: Mountain hits! 15 + [l]{level} * 10[/l] = {total}")
 
     def crack(cls):
         other_type = other.cards[other.selection.slot].type
@@ -360,7 +360,7 @@ class Contract(RPSCard):
     type = PAPER
     ability_order = ['damage', 'shield', 'badge']
     slot = 7
-    text = "7 damage. gain a shield. your opponent gains an end badge with “if this is a TYPE ability, you take 25 + 5L damage”, where TYPE is the opposing type."
+    text = "7 damage. gain a shield. your opponent gains an end badge with “if this is a TYPE ability, you take 20 + 10L damage”, where TYPE is the opposing type."
 
     def damage(cls):
         dmg = 7
@@ -377,22 +377,23 @@ class Contract(RPSCard):
             add_message(delta, f"{seat}: Can't make a Contract with nothing!")
             return
         typename = TYPES[other_type]
-        bonus = 5 * level
-        total = 25 + bonus
+        bonus = 10 * level
+        total = 20 + bonus
         update(delta, {opp(seat): {'badges': {'dins': [f'{typename}Curse', total, gamestate.meta.round]}}})
-        add_message(delta, f"{seat}: Contract grants {opp(seat)} {typename}Curse({total})")
+        add_message(delta, f"{seat}: Contract grants {opp(seat)} {typename}Curse(20 + {bonus} = {total})")
 
 class TwoHander(RPSCard):
 
     type = SCISSORS
     ability_order = ['damage', 'disable']
     slot = 8
-    text = "8L damage. if opposing ability is cracked, disable all opposing abilities for one turn and disable this for three turns."
+    text = "50 damage. if opposing ability is cracked, disable all opposing abilities for one turn and disable this for three turns."
 
     def damage(cls):
-        dmg = 8 * level
+        dmg = 50
         damage(delta, opp(seat), dmg)
-        add_message(delta, f"{seat}: TwoHander hits! 8[l]({level})[/l] = {dmg}")
+        #add_message(delta, f"{seat}: TwoHander hits! 8[l]({level})[/l] = {dmg}")
+        add_message(delta, f"{seat}: TwoHander hits! {dmg}")
 
     def disable(cls):
         if other.cards[other.selection.slot].cracked:
