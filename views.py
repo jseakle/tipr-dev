@@ -15,6 +15,7 @@ from tipr.rps import RPSRules
 
 rules_classes = {
     'rps': RPSRules(),
+#    'liar': LiarRules(),
 }
 reserved_names = ['']
 
@@ -165,8 +166,8 @@ class Update(View):
                 game.save()
 
             ticked = False
-            if ((game.options['timed'] or stage == 4) and game.last_tick and now - game.last_tick > timedelta(seconds=game.next_tick)) or \
-                    (stage < 4 and any(gamestate.p1.stages.values()) and any(gamestate.p2.stages.values())):
+            # replace this with a non-game-specific rules call to see if the current round is timed
+            if rules.should_update(game, gamestate, now):
                 ticked = True
                 keyframe_name = rules.keyframe_name
                 prev = gamestate.meta[keyframe_name]
@@ -235,6 +236,7 @@ class Submit(View):
 class Home(View):
     def get(self, request):
         return render(request, 'home.html')
+
 
 class GamePage(View):
     def get(self, request, id):

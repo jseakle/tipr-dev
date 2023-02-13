@@ -1,3 +1,5 @@
+from random import choice
+
 from tipr.models import Game
 from tipr.utils import *
 
@@ -182,14 +184,14 @@ class Pebble(RPSCard):
     type = ROCK
     ability_order = ['damage', 'badge']
     slot = 0
-    text = "12 damage. T1: gain a 2x damage badge. T2: +3L damage."
+    text = "5 + L damage. T1: gain a 2x damage badge. T2: +3L damage."
 
     def damage(cls):
-        dmg = 12
-        explanation = ''
+        dmg = 5 + level
+        explanation = f'5 + {level} '
         if timing_bonus == 2:
             dmg += 3 * level
-            explanation = f"12 + 3[l]({level})[/] = "
+            explanation += f"[2]+ 3[l]({level})[/l][/2] = "
         damage(delta, opp(seat), dmg)
         add_message(delta, f"{seat}: Pebble hits! {explanation if explanation else ''}{dmg}")
 
@@ -204,11 +206,12 @@ class Napkin(RPSCard):
     type = PAPER
     ability_order = ['health', 'damage', 'shield']
     slot = 1
-    text = "L health. T1: +4X damage, where X is opposing level. T2: gain a shield."
+    text = "2L health. T1: +4X damage, where X is opposing level. T2: gain a shield."
 
     def health(cls):
-        damage(delta, seat, -level)
-        add_message(delta, f"{seat}: Napkin heals! {level}")
+        amt = -2 * level
+        damage(delta, seat, amt)
+        add_message(delta, f"{seat}: Napkin heals! 2[l]({level})[/l] = {-amt}")
 
     def damage(cls):
         other_ability = other.selection.slot
@@ -228,31 +231,33 @@ class ButterKnife(RPSCard):
     type = SCISSORS
     ability_order = ['damage', 'disable']
     slot = 2
-    text = "10 + 2L damage. disable opposing ability for 1 turn. T1: +10 + 2L damage. T2: disable opposing ability for an additional turn."
+    text = "10 + 2L damage. disable opposing ability for 1 turn. T1: disable another random opposing ability for one turn. T2: +10 + 2L damage."
 
     def damage(cls):
         dmg = 10 + 2 * level
         explanation = f" 10 + 2[l]({level})[/l]"
-        if timing_bonus >= 1:
+        if timing_bonus >= 2:
             dmg += 10
             dmg += 2 * level
-            explanation += f" [1]+ 10 + 2[l]({level})[/l][/1]"
+            explanation += f" [2]+ 10 + 2[l]({level})[/l][/2]"
         damage(delta, opp(seat), dmg)
         add_message(delta, f"{seat}: ButterKnife hits! {explanation} = {dmg}")
 
     def disable(cls):
-        duration = 1
-        if timing_bonus == 2:
-            duration = 2
-        opposing_ability = other.selection.slot
-        if opposing_ability not in [TRUCE, INCOME]:
-            source = f"{seat}'s ButterKnife @ round {gamestate.meta.round}"
-            rest = Disabled(opposing_ability, source, duration)
-            update(delta, {opp(seat): {'restrictions': {'dins': rest.json()}}})
-            opposing_name = other.cards[opposing_ability].name
-            add_message(delta, f"{seat}: ButterKnife disables {opposing_name} for {'1 round' if duration == 1 else '[1]2[/1] rounds!'}")
-        else:
-            add_message(delta, f"{seat}: ButterKnife can't disable nothing!")
+        abilities_to_disable = [other.selection.slot]
+        if timing_bonus >= 1:
+            other_slots = set(range(9))
+            other_slots.remove(other.selection.slot)
+            abilities_to_disable.append(choice(list(other_slots)))
+        for i, opposing_ability in enumerate(abilities_to_disable):
+            if opposing_ability not in [TRUCE, INCOME]:
+                source = f"{seat}'s ButterKnife @ round {gamestate.meta.round}"
+                rest = Disabled(opposing_ability, source, 1)
+                update(delta, {opp(seat): {'restrictions': {'dins': rest.json()}}})
+                opposing_name = other.cards[opposing_ability].name
+                add_message(delta, f"{seat}: {'[1]' if i else ''}ButterKnife disables {opposing_name} for 1 round!{'[/1]' if i else ''}")
+            else:
+                add_message(delta, f"{seat}: ButterKnife can't disable nothing!")
 
 
 class Boulder(RPSCard):
@@ -277,7 +282,7 @@ class Book(RPSCard):
     type = PAPER
     ability_order = ['damage', 'respec', 'level']
     slot = 4
-    text = "1+7X damage, where X is the total level of all abilities that share a type with this one. then this ability’s type becomes the type of the ability you selected last turn, or paper if there is no such type. T1: the ability you selected last turn levels up twice."
+    text = "1+7X damage, where X is the total level of all abilities that share a type with this one. then this ability’s type becomes the type of the ability you selected last turn, or paper if there is no such type. the ability you selected last turn levels up. T1: the ability you selected last turn levels up two more times."
 
     def damage(cls):
         def type_levels(type, p):
@@ -303,24 +308,28 @@ class Book(RPSCard):
         update(delta, {seat: {'cards': {'set': (4, card)}}})
 
     def level(cls):
+        prev_frame = Game.intermediate_states(history, -2, last_only=True)
+        if not prev_frame or player.cards[prev_frame.info[seat].selection.slot].type == -1:
+            add_message(delta, f"{seat}: [1]Can't level up nothing![/1]")
+            return
+        prev_slot = prev_frame.info[seat].selection.slot
+        card = player.cards[prev_slot]
+        card.cracked = False
+        card.level += 1
+        timing = ''
         if timing_bonus >= 1:
-            prev_frame = Game.intermediate_states(history, -2, last_only=True)
-            if not prev_frame or player.cards[prev_frame.info[seat].selection.slot].type == -1:
-                add_message(delta, f"{seat}: [1]Can't level up nothing![/1]")
-                return
-            prev_slot = prev_frame.info[seat].selection.slot
-            card = player.cards[prev_slot]
-            card.cracked = False
             card.level += 2
-            update(delta, {seat: {'cards': {'set': (prev_slot, card)}}})
-            add_message(delta, f"{seat}: [1]{card.name} levels up twice![/1] (Book)")
+            timing = " [1]three times[/1]"
+        update(delta, {seat: {'cards': {'set': (prev_slot, card)}}})
+
+        add_message(delta, f"{seat}: {card.name} levels up{timing}! (Book)")
 
 class Wirecutter(RPSCard):
 
     type = SCISSORS
-    ability_order = ['damage', 'badge']
+    ability_order = ['damage', 'badge', 'respec']
     slot = 5
-    text = "X damage, where X is the sum of levels of all your scissors abilities. T1: gain a badge with “if this is a scissors ability, 3x damage.”"
+    text = "X damage, where X is the sum of levels of all your scissors abilities. gain a badge with “if this is a scissors ability, 3x damage.” T1: a random non-scissors ability of yours becomes scissors"
 
     def damage(cls):
         levels = [card.level for card in player.cards if card.type == SCISSORS]
@@ -329,9 +338,15 @@ class Wirecutter(RPSCard):
         add_message(delta, f"{seat}: Wirecutter hits! [l]{levels}[/l] = {total}")
 
     def badge(cls):
+        update(delta, {seat: {'badges': {'dins': ['ScissorsDmgMultiplier', 3, gamestate.meta.round]}}})
+        add_message(delta, f"{seat}: [1]Wirecutter grants ScissorsDmgMultiplier(3)![/1]")
+
+    def respec(cls):
         if timing_bonus >= 1:
-            update(delta, {seat: {'badges': {'dins': ['ScissorsDmgMultiplier', 3, gamestate.meta.round]}}})
-            add_message(delta, f"{seat}: [1]Wirecutter grants ScissorsDmgMultiplier(3)![/1]")
+            card = choice(player.cards)
+            card.type = SCISSORS
+            update(delta, {seat: {'cards': {'set': (card.slot, card)}}})
+            add_message(delta, f"{seat}: {card.name} becomes scissors")
 
 class Mountain(RPSCard):
 
@@ -339,7 +354,7 @@ class Mountain(RPSCard):
     ability_order = ['damage', 'crack']
     slot = 6
     badge_multiplier = 2
-    text = "15 + 10L damage. crack all opposing abilities of the opposing type. badges apply twice."
+    text = "15 + 10L damage. crack all opposing abilities. badges apply twice."
 
     def damage(cls):
         total = 15 + 10 * level
@@ -347,13 +362,11 @@ class Mountain(RPSCard):
         add_message(delta, f"{seat}: Mountain hits! 15 + [l]{level} * 10[/l] = {total}")
 
     def crack(cls):
-        other_type = other.cards[other.selection.slot].type
-        cards_to_crack = [card for card in other.cards if card.type == other_type]
-        for card in cards_to_crack:
+        cracked_names = list(map(lambda card: card['name'], filter(lambda card: not card.cracked, other.cards)))
+        for card in other.cards:
             card.cracked = True
             update(delta, {opp(seat): {'cards': other.cards}})
-        cards_to_crack = list(map(lambda card: card['name'], cards_to_crack))
-        add_message(delta, f"{seat}: Mountain cracks all {opp(seat)} {TYPES[other_type]} cards! ({cards_to_crack})")
+        add_message(delta, f"{seat}: Mountain cracks all uncracked {opp(seat)} cards! ({cracked_names})")
 
 class Contract(RPSCard):
 
@@ -387,10 +400,10 @@ class TwoHander(RPSCard):
     type = SCISSORS
     ability_order = ['damage', 'disable']
     slot = 8
-    text = "50 damage. if opposing ability is cracked, disable all opposing abilities for one turn and disable this for three turns."
+    text = "5 damage if level 0, otherwise 50 damage. if opposing ability is cracked, disable all opposing abilities for one turn and disable this for three turns."
 
     def damage(cls):
-        dmg = 50
+        dmg = 5 if level == 0 else 50
         damage(delta, opp(seat), dmg)
         #add_message(delta, f"{seat}: TwoHander hits! 8[l]({level})[/l] = {dmg}")
         add_message(delta, f"{seat}: TwoHander hits! {dmg}")
