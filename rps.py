@@ -4,7 +4,6 @@ from random import choice, shuffle
 from tipr.utils import *
 from tipr.rps_cards import *
 
-
 class RPSRules(object):
 
     keyframe_name = 'round'
@@ -102,6 +101,11 @@ class RPSRules(object):
             gamestate[other].stages = RPSRules.stage_dict
         return gamestate
 
+    def should_update(self, game, gamestate, timestamp):
+        return ((game.options['timed'] or gamestate.meta.stage == 4)
+                and game.last_tick and game.has_ticked(timestamp) or \
+               (gamestate.meta.stage < 4 and any(gamestate.p1.stages.values()) and any(gamestate.p2.stages.values()))
+     
     def do_update(self, game):
         return self.pure_update(Box(game.options), Box(game.gamestate), game.history)
 

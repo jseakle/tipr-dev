@@ -121,6 +121,34 @@ def update(d, u):
                 s()
     return d
 
+# WARNING: THIS IS CURRENTLY FOR LIAR ONLY
+def gen_patch(state1, state2):
+    if type(state1) != type(state2):
+        return state2
+    
+    ret = {}
+
+    if type(state1) in [str, int]:
+        return state2
+    
+    if isinstance(state1, list):
+        if not state1:
+            ret['ins'] = state2
+        else:
+            # Only appends are supported
+            ret['ins'] = state2[-1:]
+        return ret
+    
+    if not state1:
+        return state2
+    for key in state1.keys() | state2.keys():
+        if key not in state1:
+            ret[key] = state2[key]
+        if key not in state2:
+            ret[key] = 'del'
+        ret[key] = gen_patch(state1[key], state2[key])
+    return ret
+    
 def add_message(delta, message):
     update(delta, {'meta': {'message': {'ins': [message]}}})
 

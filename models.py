@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import timedelta
 from tipr.utils import *
 from django.db import models
 
@@ -93,3 +93,7 @@ class Game(models.Model):
             self.event('rewind', reason, now)
             self.keyframe()
         self.save()
+
+    # this takes a timestamp instead of checking the time because we might be in a replay
+    def has_ticked(self, timestamp):
+        return timestamp - self.last_tick > timedelta(seconds=self.next_tick))
