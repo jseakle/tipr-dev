@@ -1,0 +1,46 @@
+2022-08-19
+
+1.
+
+Pebble was: "15 damage. T1: gain a 2x damage badge. T2: +3L damage."
+Pebble now: "12 damage. T1: gain a 2x damage badge. T2: +3L damage."
+
+ButterKnife was: "10 + 2L damage. disable opposing ability for 1 turn. T1: +10 + 4L damage. T2: disable opposing ability for an additional turn."
+ButterKnife now: "10 + 2L damage. disable opposing ability for 1 turn. T1: +10 + 2L damage. T2: disable opposing ability for an additional turn."
+
+Boulder was: "gain a +5+5L damage badge. T1: gain a +2 level badge."
+Boulder now: "gain a +25+5L damage badge. T1: gain a +2 level badge."
+
+Book was: "1+X damage, where X is the total level of all abilities that share a type with this one. then this ability’s type becomes the type of the ability you selected last turn, or paper if there is no such type. T1: the ability you selected last turn levels up twice."
+Book now: "1+7X damage, where X is the total level of all abilities that share a type with this one. then this ability’s type becomes the type of the ability you selected last turn, or paper if there is no such type. T1: the ability you selected last turn levels up twice."
+
+Mountain was: "15 + 2L damage. crack all opposing abilities of the opposing type. badges apply twice."
+Mountain now: "15 + 10L damage. crack all opposing abilities of the opposing type. badges apply twice."
+
+Contract was: "7 damage. gain a shield. your opponent gains an end badge with “if this is a TYPE ability, you take 25 + 5L damage”, where TYPE is the opposing type."
+Contract now: "7 damage. gain a shield. your opponent gains an end badge with “if this is a TYPE ability, you take 20 + 10L damage”, where TYPE is the opposing type."
+
+TwoHander was: "8L damage. if opposing ability is cracked, disable all opposing abilities for one turn and disable this for three turns."
+TwoHander now: "50 damage. if opposing ability is cracked, disable all opposing abilities for one turn and disable this for three turns."
+
+2.
+
+Book was: "1+7X damage, where X is the total level of all abilities that share a type with this one. then this ability’s type becomes the type of the ability you selected last turn, or paper if there is no such type. T1: the ability you selected last turn levels up twice."
+Book now: "1+7X damage, where X is the total level of all abilities that share a type with this one. then this ability’s type becomes the type of the ability you selected last turn, or paper if there is no such type. the ability you selected last turn levels up. T1: the ability you selected last turn levels up two more times."
+
+Mountain was: "15 + 10L damage. crack all opposing abilities of the opposing type. badges apply twice."
+Mountain now: "15 + 10L damage. crack all opposing abilities. badges apply twice."
+
+TwoHander was: "50 damage. if opposing ability is cracked, disable all opposing abilities for one turn and disable this for three turns."
+TwoHander now: "5 damage if level 0, otherwise 50 damage. if opposing ability is cracked, disable all opposing abilities for one turn and disable this for three turns."
+
+3.
+
+Pebble was: "12 damage. T1: gain a 2x damage badge. T2: +3L damage."
+Pebble now: "5 + L damage. T1: gain a 2x damage badge. T2: +3L damage."
+
+Napkin was: "L health. T1: +4X damage, where X is opposing level. T2: gain a shield."
+Napkin now: "2L health. T1: +4X damage, where X is opposing level. T2: gain a shield."
+
+ButterKnife was: "10 + 2L damage. disable opposing ability for 1 turn. T1: +10 + 2L damage. T2: disable opposing ability for an additional turn."
+ButterKnife now: "10 + 2L damage. disable opposing ability for 1 turn. T1: disable another random opposing ability for one turn. T2: +10 + 2L damage."

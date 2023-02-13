@@ -27,5 +27,6 @@ urlpatterns = [
     path('update/', Update.as_view(), name='update'),
     path('submit/', Submit.as_view(), name='submit'),
     path('gamelist/', GameList.as_view(), name='gamelist'),
+    path('changes', Changes.as_view(), name='changes'),
     re_path('game/(?P<id>\d+)', GamePage.as_view(), name='game'),
 ]

@@ -267,3 +267,9 @@ class GameList(View):
             cache.set(f'{name}_gamelist', response.gamelist)
 
         return JsonResponse(response)
+
+class Changes(View):
+    def get(self, request):
+        response = render(request, 'changes.txt')
+        response['Content-Disposition'] = "Content-Type: text/plain;"
+        return response

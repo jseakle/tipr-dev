@@ -168,7 +168,6 @@ class RPSRules(object):
                          'ability_number': len(globals()[options.deck[happens_second.slot]].ability_order) + 3}}})
                 else:  # the card won't happen, but we might need the name
                     delta.ga(opp(happens_first.owner)).selection = {'slot': loser.card.slot, 'ability_number': 0}
-                logging.warn(f"THREE: {delta}")
                 for seat in seats:
                     # in the future maybe wear-off messages for effects whose initial duration was > 1 turn
                     # can use history for this
