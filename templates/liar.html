@@ -1,0 +1,49 @@
+{% extends "game_base.html" %}
+{% block head %}
+    {{ block.super }}
+    <title>tipr liar</title>
+{% endblock %}
+{% block extra_js %}
+    {{ block.super }}
+    function bet() {
+        var td = $(event.srcElement)
+	var cap = td.data('cap')
+
+	if(td.data('current') == cap) {
+	    td.data('current', 0)
+	    td.html(td.data('past') + "<br>" + "◯".repeat(cap))
+        } else {
+            var cur = td.data('current') + 1
+            td.data('current', cur)
+	    td.html(td.data('past') + "<br>" + " ⬤".repeat(cur) + "◯".repeat(cap-cur))
+	}
+	$('td').filter(`[data-stmt=${td.data('stmt')}]`).filter(`[data-player=${td.data('player')}]`).filter(`[data-truth=${!td.data('truth')}]`).each(function() {
+	    var elt = $(this);
+	    elt.html(elt.data('past') + "<br>" + "◯".repeat(parseInt(cap)))
+	    elt.data('current', 0)
+	})
+    }
+
+    function bet_submission(player) {
+	var submission = {}
+	$('td').filter(function() {return $(this).data('current')>0}).each(function() {
+            var t = $(this)
+	    submission[t.data('stmt')] = {[t.data('truth')]: t.data('current')}
+	})
+	return JSON.stringify(submission)
+    }
+</script>
+{% endblock extra_js %}
+{% block sit_button %}
+    <script>
+    var gametype = 'liar'
+    {{ block.super }}
+{% endblock %}    
+{% block content %}
+<div style="height:70%;width:98%;position:fixed;top:0;border:1px solid #ccc;overflow:auto">
+<div id="sitstat"></div>
+<div id="movestat"><br></div>
+<div id="gameboard"></div>
+
+<div id="chat_container"></div>
+{% endblock content %}

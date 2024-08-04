@@ -1,79 +1,25 @@
-{% extends "base.html" %}
+{% extends "game_base.html" %}
 {% block head %}
     {{ block.super }}
-    <title>tipr</title>
-{% endblock %}
-{% block extra_js %}
- {{ block.super }}
-<script>
-    var load = true;
-    function sit(seat) {
-        $.post('../sit/', {seat: seat, type: 'rps', game: {{game.id}}}, function(data) {
-            $('#sitstat').html('Joined game')
-            window.timeoutid = setTimeout(() => $('#sitstat').html('<br>'), 4000)
-        }).fail(function(response) {
-            $('#sitstat').html(response.responseJSON['error'])
-            window.timeoutid = setTimeout(() => $('#sitstat').html('<br>'), 4000)
-        });
+    <title>tipr rps</title>
+{% endblock head %}
 
-    }
-    function submit(move) {
-        clearTimeout(window.timeoutid)
-        $.post('../submit/', {move: '{"type": "selection", "selection": '+move+'}'}, function(data) {
-            $('#movestat').html('submitted ' + move)
-            window.timeoutid = setTimeout(() => $('#movestat').html('<br>'), 4000)
-        }).fail(function(response) {
-            $('#movestat').html(response.responseJSON['error'])
-            window.timeoutid =setTimeout(() => $('#movestat').html('<br>'), 4000)
-        });
-    }
+{% block sit_button %}
+    <script>
+    var gametype = 'rps'
+    {{ block.super }}
+{% endblock sit_button %}    
+
+{% block extra_js %}
+    {{ block.super }}
+
     function help(card) {
         for(var i = 0; i < 9; i++) {
             $("#" + i + "_text").hide()
         }
         $("#"+card+"_text").show()
     }
-    var timer = new Timer({
-        fps: 8,
-        run: function () {
-            if($('#gameboard').is(':empty')) {
-                load = true;
-                console.log('loading')
-            }
-           $.post('../update/', {load: load}, function (response) {
-                if ('error' in response) {
-                    $('#game').html(response['error'])
-                } else {
-                    if (response['gameboard'] != 'U') {
-
-                        var old_height = $('#gameboard').prop('scrollHeight');
-                        var old_scroll = $('#gameboard').scrollTop();
-                        $('#gameboard').html( response['gameboard'])
-                        //$('#gameboard #board').html(JSON.stringify(JSON.parse($('#gameboard #board_json').text()), null, 2))
-                        $('#gameboard').scrollTop(old_scroll + $('#gameboard').height() - old_height);
-                    }
-                    if (response['chat'] != 'U') {
-                        var old_scroll = $('#chat').scrollTop();
-                        var remaining = $('#chat').prop('scrollHeight')- ($('#chat').scrollTop() + $('#chat').height());
-                        $('#chat_container').html(response['chat']);
-                        if(remaining > 20) {
-                            $('#chat').scrollTop(old_scroll);
-                        } else {
-                            $('#chat').scrollTop($('#chat').prop('scrollHeight'));
-                        }
-                        //console.log(response)
-                    }
-                    $('#timer').html(response['timer'])
-                }
-            }).fail(function (response) {
-                //console.log(response)
-            });
-            load = false;
-        }
-    });
-
-    timer.start();
-</script>
+    </script>
 {% endblock extra_js %}
 
 {% block content %}

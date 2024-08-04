@@ -3,8 +3,10 @@ import logging
 from random import choice, shuffle
 from tipr.utils import *
 from tipr.rps_cards import *
+from tipr.rules import Rules
 
-class RPSRules(object):
+
+class RPSRules(Rules):
 
     keyframe_name = 'round'
 
@@ -12,6 +14,7 @@ class RPSRules(object):
         'timed': False,
         'timer': 7,
         'player_count': 2,
+        'fps': 8,
     }
     stage_dict = {'1': [], '2': [], '3': []}
 
@@ -53,8 +56,9 @@ class RPSRules(object):
                 card_classes[cls.slot].append(cls)
         return [choice(card_classes[x]).__name__ for x in range(11)]
 
-    @functools.cache
+
     @staticmethod
+    @functools.cache
     def deck_text(game):
         return [Box({'name': card.__name__, 'slot': card.slot, 'text': card.text})
                 for card in RPSCard.__subclasses__() if card.__name__ in game.options['deck']]
@@ -102,8 +106,8 @@ class RPSRules(object):
         return gamestate
 
     def should_update(self, game, gamestate, timestamp):
-        return ((game.options['timed'] or gamestate.meta.stage == 4)
-                and game.last_tick and game.has_ticked(timestamp) or \
+        return ((game.options.get('timed') or gamestate.meta.stage == 4)
+                and game.last_tick and game.has_ticked(timestamp)) or \
                (gamestate.meta.stage < 4 and any(gamestate.p1.stages.values()) and any(gamestate.p2.stages.values()))
      
     def do_update(self, game):
@@ -211,18 +215,17 @@ class RPSRules(object):
                 logging.warn(f"{delta}\n--\n{result}")
                 return update(delta, result)
 
-    def winner(self, game):
-        game = Box(game.gamestate)
-        p1_dead = game.p1.hp <= 0
-        p2_dead = game.p2.hp <= 0
+    def winner(self, gamestate):
+        p1_dead = gamestate.p1.hp <= 0
+        p2_dead = gamestate.p2.hp <= 0
         if p2_dead and p1_dead:
-            if game.p1.hp == game.p2.hp:
-                return 'tie'
-            return seats[game.p2.hp > game.p1.hp]
+            if gamestate.p1.hp == gamestate.p2.hp:
+                return 'Tie game!'
+            return seats[gamestate.p2.hp > gamestate.p1.hp]
         elif p1_dead:
-            return 'p2'
+            return 'p2 wins!'
         elif p2_dead:
-            return 'p1'
+            return 'p1 wins!'
         else:
             return None
 
@@ -242,7 +245,7 @@ class RPSRules(object):
         for restriction in self.get_restrictions(gamestate, seat):
             if restriction.applies(gamestate, seat, move):
                 return {'error': f'Move rejected due to {restriction.source}'}
-        if game.options['timed']:
+        if game.options.get('timed'):
             return self.pure_move(Box(game.options), gamestate, game.history, seat, move)
         return self.pure_untimed_move(Box(game.options), gamestate, game.history, seat, move)
 
@@ -272,10 +275,54 @@ class RPSRules(object):
         return delta
 
     def next_tick(self, game):
-        if game.gamestate['meta']['stage'] <= 3:
+        stage = game.gamestate['meta']['stage']
+        if stage <= 3:
             return game.options['timer']
+        elif stage == 4 and not game.gamestate['meta']['messages']:
+            return 0
         else:
             return 2
 
+    def gameboard_context(self, request, seat, game, gamestate, now):
+        response = Box()
+        gameboard_context = game.response(self.response(game, seat), now)
+        gameboard_context.name = request.session.get('name')
 
+        gamestate = Box(gameboard_context.gamestate)
+        stage = gamestate.meta.stage
+        gameboard_context.seat = ('p1', 'p2', 'spectating')[seat]
+        cards = []
+        highest_slot = stage * 3 if stage < 4 else -1
+        for card_dict in gamestate.p1.cards[:-2]:
+            card = Box(card_dict)
+            other = Box(gamestate.p2.cards[card.slot])
+            card.name = f"{card.level}{'X' if card.cracked else ''} {card.name} {other.level}{'X' if other.cracked else ''}"
+            if stage < 4 and game.options.get('timed'):
+                card.color = GREEN if card.slot < highest_slot else '#FFF'
+            else:
+                selections = self.get_selections(gamestate)
+                p1_slot = selections[0].card.slot if selections[0] else None
+                p2_slot = selections[1].card.slot if selections[1] else None
+                if card.slot == p1_slot == p2_slot:
+                    card.color = YELLOW
+                elif card.slot == p1_slot:
+                    card.color = BLUE
+                elif card.slot == p2_slot:
+                    card.color = RED
+                else:
+                    card.color = WHITE
+            cards.append(card)
 
+        pass_color = ('pass' in gamestate.p1.stages) + ('pass' in gamestate.p2.stages) * 2
+        gameboard_context.pass_color = [WHITE, BLUE, RED, YELLOW][pass_color]
+        gameboard_context.cards = cards
+        gameboard_context.p1_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p1.badges]
+        gameboard_context.p2_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p2.badges]
+        gameboard_context.selections = [] if stage < 4 else [gamestate.p1.selection.slot, gamestate.p2.selection.slot]
+        gameboard_context.timed = game.options.get('timed')
+        gameboard_context.active = game.status == ACTIVE
+        return gameboard_context
+    
+    # could be a classmethod
+    def gameboard_data(self, game):
+        return {'cards': [{'name': c.name, 'slot': c.slot, 'text': c.text} for c in self.deck_text(game)], 'fps': game.options.get('fps', self.DEFAULT_OPTIONS['fps'])}

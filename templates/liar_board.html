@@ -1,0 +1,60 @@
+{% extends "gameboard.html" %}
+
+{% block gameboard %}
+{{ block.super }}
+<div id="board">
+  <div class="row">
+    <!-- column per player -->
+    {% for data in columns %}
+    <div class="column">
+      <table id="table-{{data.player}}" class="playertable">
+	<tr>
+	  <!-- extra_column for checkbox -->
+	  {% if data.extra_column %}
+	  <th>{{ data.extra_column }}</th>
+	  {% endif %}
+	  <th width=40%>{{ data.player }}'s Statements</th>
+	  <th>{{ p1_name }} True</th>
+	  <th>{{ p1_name }} False</th>
+	  <th>{{ p2_name }} True</th>
+	  <th>{{ p2_name }} False</th>
+	</tr>
+	{% for stmt, idx in data.statements %}
+	<tr>
+	  {% if data.extra_column %}
+	  <!-- clarify only puts a checkbox on the latest -->
+	  <td>{% if data.extra_column == 'ADJUDICATE' or forloop.counter == data.statements|length %}<input type="checkbox" id="{{forloop.counter0}}" />{% endif %}</td>
+	  {% endif %}
+	  <td>{{ stmt }}</td>
+	  <td {% if stmt.truth %}style="background-color:green;"{% elif done %}style="background-color:red;"{% endif %}data-stmt="{{idx}}" data-player="p1" data-truth="true" data-current="0" data-past="{{stmt.votes.p1_true_past}}" data-cap="{{forloop.counter|add:increased_cap}}"  {% if bet and name == p1_name  %}onclick="bet()"{% endif %}>{{stmt.votes.p1_true_past|safe}}<br>{% if bet %}{{ stmt.empty }}{% endif %}</td>
+	  <td {% if stmt.truth %}style="background-color:red;"{% elif done %}style="background-color:green;"{% endif %}data-stmt="{{idx}}" data-player="p1" data-truth="false" data-current="0" data-past="{{stmt.votes.p1_false_past}}" data-cap="{{forloop.counter|add:increased_cap}}"  {% if bet and name == p1_name  %}onclick="bet()"{% endif %}>{{stmt.votes.p1_false_past|safe}}<br>{% if bet %}{{ stmt.empty }}{% endif %}</td>
+	  <td {% if stmt.truth %}style="background-color:green;"{% elif done %}style="background-color:red;"{% endif %}data-stmt="{{idx}}" data-player="p2" data-truth="true" data-current="0" data-past="{{stmt.votes.p2_true_past}}" data-cap="{{forloop.counter|add:increased_cap}}"  {% if bet and name == p2_name  %}onclick="bet()"{% endif %}>{{stmt.votes.p2_true_past|safe}}<br>{% if bet %}{{ stmt.empty }}{% endif %}</td>
+	  <td {% if stmt.truth %}style="background-color:red;"{% elif done %}style="background-color:green;"{% endif %}data-stmt="{{idx}}" data-player="p2" data-truth="false" data-current="0" data-past="{{stmt.votes.p2_false_past}}" data-cap="{{forloop.counter|add:increased_cap}}"  {% if bet and name == p2_name  %}onclick="bet()"{% endif %}>{{stmt.votes.p2_false_past|safe}}<br>{% if bet %}{{ stmt.empty }}{% endif %}</td>
+	</tr>
+	{% endfor %}
+      </table>
+      <br>
+    </div>
+    {% if data.revealed != None %}
+    Revealed: {{ data.revealed }}<br>
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  <textarea id="move" {% if not textinput %}disabled{% endif %}>{{to_revise}}</textarea>
+  <button id="submit"
+	  {% if columns.0.extra_column %}
+	  onclick="submit(JSON.stringify($('input[type=checkbox]:checked').toArray().map((chk) => chk.id)))"
+	  {% elif bet %}
+	  onclick="submit(bet_submission({{player}}))"
+	  {% else %}
+	  onclick="submit(JSON.stringify($('#move')[0].value))"
+          {% endif %}
+	  >Submit</button>
+  <hr>
+  Your Cards:<br>
+  {% for card in hand %}{{ card }} {% endfor %}
+  {% if showdown or seat == 'spectating' %}<br>Opponent cards:<br>{% for card in opp_hand %}{{card }} {% endfor %}{% endif %}
+</div>
+	  
+{% endblock gameboard %}

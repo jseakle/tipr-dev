@@ -1,14 +1,27 @@
 <html lang="en">
 <!DOCTYPE html>
 <head>
-    <meta charset="UTF-8">
+  <meta charset="UTF-8">
 {% block head %}
 
 {% endblock %}
 </head>
-{% block extra_js %}
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+{% block sit_button %}
+    function sit(seat) {
+        $.post('../sit/', {seat: seat, type: gametype, game: {{game.id}}}, function(data) {
+            $('#sitstat').html('Joined game')
+	    window.timeoutid = setTimeout(() => $('#sitstat').html('<br>'), 4000)
+	}).fail(function(response) {
+	    $('#sitstat').html(response.responseJSON['error'])
+            window.timeoutid = setTimeout(() => $('#sitstat').html('<br>'), 4000)
+	});	
+    }
+</script>
+{% endblock %}
+{% block extra_js %}
 <script>
+  
 function Timer(settings)
   {
     this.settings = settings;
@@ -38,6 +51,7 @@ Timer.prototype =
 
     start: function()
     {
+	this.interval = Math.floor(1000/this.fps);
         if(this.timer == null)
         {
             this.timeInit = (new Date).getTime();
@@ -49,9 +63,14 @@ Timer.prototype =
     {
         clearTimeout(this.timer);
         this.timer = null;
+    },
+
+    slow: function()
+    {
+	this.interval = Math.floor(10000/this.fps);
     }
 }
-</script>
+
 {% endblock %}
 <body>
 {% block content %}{% endblock %}
