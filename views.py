@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import datetime, timedelta, timezone
+from termcolor import colored as c
 
 from django.core.cache import cache
 from django.db import transaction
@@ -12,10 +13,11 @@ from django.views import View
 
 from tipr.models import Game
 from tipr.rps import RPSRules
+from tipr.liar import LiarRules
 
 rules_classes = {
     'rps': RPSRules(),
-#    'liar': LiarRules(),
+    'liar': LiarRules(),
 }
 reserved_names = ['']
 
@@ -83,6 +85,7 @@ def get_seat(game, name):
 
 class Update(View):
     def post(self, request):
+
         with transaction.atomic():
             now = tznow()
             name = request.session.get('name')
@@ -99,63 +102,14 @@ class Update(View):
                 pass
                 #return JsonResponse({'error': 'waiting for all players to be ready'})
             gamestate = Box(game.gamestate)
-            stage = gamestate.meta.stage
 
             rules = rules_classes[game.type]
             seat = get_seat(game, name)
 
-            def render_gameboard():
-                response = Box()
-                gameboard_context = game.response(rules.response(game, seat), now)
-                gamestate = Box(gameboard_context.gamestate)
-                stage = gamestate.meta.stage
-                gameboard_context.seat = ('p1', 'p2', 'spectating')[seat]
-                cards = []
-                highest_slot = stage * 3 if stage < 4 else -1
-                for card_dict in gamestate.p1.cards[:-2]:
-                    card = Box(card_dict)
-                    other = Box(gamestate.p2.cards[card.slot])
-                    card.name = f"{card.level}{'X' if card.cracked else ''} {card.name} {other.level}{'X' if other.cracked else ''}"
-                    if stage < 4 and game.options.get('timed'):
-                        card.color = GREEN if card.slot < highest_slot else '#FFF'
-                    else:
-                        selections = rules.get_selections(gamestate)
-                        p1_slot = selections[0].card.slot if selections[0] else None
-                        p2_slot = selections[1].card.slot if selections[1] else None
-                        if card.slot == p1_slot == p2_slot:
-                            card.color = YELLOW
-                        elif card.slot == p1_slot:
-                            card.color = BLUE
-                        elif card.slot == p2_slot:
-                            card.color = RED
-                        else:
-                            card.color = WHITE
-                    cards.append(card)
-
-                pass_color = ('pass' in gamestate.p1.stages) + ('pass' in gamestate.p2.stages) * 2
-                gameboard_context.pass_color = [WHITE, BLUE, RED, YELLOW][pass_color]
-                gameboard_context.cards = cards
-                gameboard_context.p1_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p1.badges]
-                gameboard_context.p2_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p2.badges]
-                gameboard_context.selections = [] if stage < 4 else [gamestate.p1.selection.slot, gamestate.p2.selection.slot]
-                gameboard_context.timed = game.options.get('timed')
-                gameboard_context.active = game.status == ACTIVE
-                response.gameboard = render(request, 'gameboard.html', gameboard_context).content.decode()
-                response.timer = render(request, 'timer.html', gameboard_context).content.decode()
-                response.chat = render(request, 'chat.html', {'chat_log': game.chat_log}).content.decode()
-                load = request.POST.get('load') == 'true'
-                if not load and response.gameboard == cache.get(f'{name}_gameboard'):
-                    response.gameboard = 'U'
-                else:
-                    cache.set(f'{name}_gameboard', response.gameboard)
-                if not load and response.chat == cache.get(f'{name}_chat'):
-                    response.chat = 'U'
-                else:
-                    cache.set(f'{name}_chat', response.chat)
-                return response
-
             if seat == -1 or game.status != ACTIVE:
-                return JsonResponse(render_gameboard())
+                resp = rules.render_gameboard(request, seat, game, gamestate, now)
+                logging.warning(resp)
+                return JsonResponse(resp)
 
             # account for start of game conditions
             if game.next_tick is None:
@@ -166,32 +120,25 @@ class Update(View):
                 game.save()
 
             ticked = False
-            # replace this with a non-game-specific rules call to see if the current round is timed
             if rules.should_update(game, gamestate, now):
+                logging.warning(2)
                 ticked = True
                 keyframe_name = rules.keyframe_name
                 prev = gamestate.meta[keyframe_name]
                 try:
                     delta = rules.do_update(game)
-                    logging.warn(f"{delta}")
+                    logging.warn(c(f'TICK: {delta}', "red"))
                     update(gamestate, delta)
-                    messages = len(gamestate.meta.message)
+                    logging.warn(f'TICK COMPLETE: {gamestate}')
+
                     for message in gamestate.meta.message:
                         game.chat('system', message, now)
                     gamestate.meta.message = []
                     game.gamestate = dict(gamestate)
-                    if stage == 4 and not messages:
-                        game.next_tick = 0
-                    else:
-                        game.next_tick = rules.next_tick(game)
 
                     if gamestate.meta[keyframe_name] != prev:
-                        if winner := rules.winner(game):
-                            if winner == 'tie':
-                                msg = "Tie game!"
-                            else:
-                                msg = f"{winner} wins!"
-                            game.chat('system', msg, now)
+                        if winner := rules.winner(gamestate):
+                            game.chat('system', winner, now)
                             game.status = FINISHED
                         game.keyframe()
                     else:
@@ -202,11 +149,12 @@ class Update(View):
                     message = f'error doing timed update: {e}\nresetting to {keyframe_name} {prev}'
                     game.chat('system', message, now)
                     game.rewind(1, message)
-                    return JsonResponse(render_gameboard())
+                    return JsonResponse(rules.render_gameboard(request, seat, game, gamestate, now))
 
-            gameboard = render_gameboard()
+            gameboard = rules.render_gameboard(request, seat, game, gamestate, now)
             if ticked:
                 game.last_tick = now
+                game.next_tick = rules.next_tick(game)
                 game.save()
                 game.refresh_from_db()
             return JsonResponse(gameboard)
@@ -222,8 +170,10 @@ class Submit(View):
         rules = rules_classes[game.type]
         seat = get_seat(game, name)
         # {"type": "selection", "selection": <slot>}
+        logging.warn(c(f'MOVE: {seat} {request.POST.get("move")}', "red"))
         move = json.loads(request.POST.get('move'))
         delta = rules.move(game, seat, move)
+        logging.warning(f"DELTA {delta} from {move}")
         if 'error' in delta:
             logging.warn(delta)
             return JsonResponse(delta, status=500)
@@ -244,8 +194,7 @@ class GamePage(View):
         pause_others(game)
         request.session['gameid'] = game.pk
         return render(request, f'{game.type}.html',
-                      {'game': game, 'seat': get_seat(game, request.session.get('name')),
-                       'cards': [{'name': c.name, 'slot': c.slot, 'text': c.text} for c in RPSRules.deck_text(game)]})
+                      {'game': game, 'gametype': game.type, 'seat': get_seat(game, request.session.get('name')), **rules_classes[game.type].gameboard_data(game)})
 
 class GameList(View):
     def post(self, request):

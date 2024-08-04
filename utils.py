@@ -41,7 +41,9 @@ GREEN = '#4CAF50'
 WHITE = '#FFF'
 
 def opp(p):
-    return seats[p=='p1']
+    if isinstance(p, str):
+        return seats[p=='p1']
+    return seats[not p]
 
 import collections.abc
 
@@ -73,11 +75,14 @@ def combine_numeric_modifiers(mods):
 #   number, number -> new number
 #   number, tuple -> tupleops(number)
 def update(d, u):
+    logging.warning(f'{d}\n{u}')
     if not u:
         return d
     for k, v in u.items():
         if v == 'del':
             del d[k]
+        if v is None:
+            d[k] = None
         elif k == 'dins':  # 'delta insert'
             if 'ins' in d:
                 d['ins'].append(v)
@@ -109,6 +114,12 @@ def update(d, u):
                 d[k].extend(v['ins'])
             if 'set' in v:
                 d[k][v['set'][0]] = v['set'][1]
+            if 'rep' in v:
+                d[k] = v['rep']
+            if 'upd' in v:
+                logging.warn(f'{d} v: {v}')
+                for idx, delta in v['upd'].items():
+                    d[k][idx] = update(d[k][idx], delta)
         elif isinstance(v, collections.abc.Mapping):
             if 'replace' in v:
                 d[k] = v['replace']
@@ -117,36 +128,64 @@ def update(d, u):
         else:
             try:
                 d[k] = v
-            except:
-                s()
+            except Exception as e:
+                logging.warning(f"Update error: {e}, {d}, {k}, {y}")
+                #s()
     return d
 
+class NoChange(object):
+    pass
+
 # WARNING: THIS IS CURRENTLY FOR LIAR ONLY
-def gen_patch(state1, state2):
-    if type(state1) != type(state2):
-        return state2
+def gen_patch(state1, state2, rec=False):
+    logging.warning(f"gen {state1} {state2}")
+    # this can only happen on a recursive call, so the type is ok
+
+    if rec:
+        if state1 == state2:
+            return NoChange
+        elif type(state1) != type(state2) and not (isinstance(state1, oBox) and isinstance(state2, oBox)):
+            if isinstance(state2, dict):
+                logging.warning("REP: " + str(type(state1)) + " " + str(type(state2)) + " " + repr(state1) + "\nTO: " + repr(state2))
+                return {'replace': state2}
+            return state2
     
     ret = {}
 
     if type(state1) in [str, int]:
+        logging.warning("BAR" + repr(ret))
         return state2
     
     if isinstance(state1, list):
         if not state1:
             ret['ins'] = state2
+        elif len(state1) == len(state2):
+            ret = {'upd': {x: gen_patch(state1[x], state2[x], True) for x in range(len(state1)) if state1[x] != state2[x]}}
+        elif len(state2) < len(state1):
+            ret['rep'] = state2
+        elif all([state1[x] == state2[x] for x in range(len(state1))]):
+            ret['ins'] = state2[len(state1):]
         else:
-            # Only appends are supported
-            ret['ins'] = state2[-1:]
+            ret['rep'] = state2
+        logging.warning("OO" + repr(ret))            
         return ret
     
     if not state1:
+        logging.warning(f"N? {state1} {state2}")
         return state2
+
     for key in state1.keys() | state2.keys():
         if key not in state1:
             ret[key] = state2[key]
+            continue
         if key not in state2:
             ret[key] = 'del'
-        ret[key] = gen_patch(state1[key], state2[key])
+            continue
+
+        if (result := gen_patch(state1[key], state2[key], True)) != NoChange:
+            ret[key] = result
+
+
     return ret
     
 def add_message(delta, message):
@@ -177,6 +216,15 @@ def tznow():
     return datetime.now(timezone.utc)
 
 class Box(oBox):
+
+    def __new__(self, *args, **kwargs):
+        kwargs['box_class'] = self.__class__
+        return oBox.__new__(self, *args, **kwargs)
+
+    def __init__(self, *args, **kwargs):
+        kwargs['box_class'] = self.__class__
+        super(Box, self).__init__(*args, **kwargs)
+        
     def __getattr__(self, name):
         if name in ['del_values']:
             setattr(self, name, [])

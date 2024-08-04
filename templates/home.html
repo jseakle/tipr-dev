@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-
+{% block sit_button %} {% endblock %}
 {% block head %}
     {{ block.super }}
     <title>tipr</title>
 {% endblock %}
 {% block extra_js %}
  {{ block.super }}
-<script>
+
     var load = true;
     function register() {
         load = true;
@@ -14,8 +14,8 @@
         $.post('register/', {name: document.getElementsByName('name')[0].value}, function(data) {})
         .fail(function(response) {console.log(response)});
     }
-    function sit(seat) {
-        $.post('sit/', {'seat': seat, 'type': 'rps'}, function(data) {
+    function sit(seat, type) {
+        $.post('sit/', {'seat': seat, 'type': type}, function(data) {
             $('#sitstat').html('sat in ' + seat)
         }).fail(function(response) {
             $('#sitstat').html(response)
@@ -51,7 +51,8 @@
 what name you want?
 <input name="name"></input>
 <button name="ok" onclick="register()">ok</button><br>
-<button name="sit" onclick="sit(0)">New Game</button>
+<button name="rps" onclick="sit(0, 'rps')">rps</button>
+<button name="liar" onclick="sit(0, 'liar')">liar</button>
 <div id="sitstat"></div><br>
 <div id="gamelist"></div>
 

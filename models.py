@@ -9,7 +9,7 @@ class Game(models.Model):
     status = models.IntegerField(default=CREATED)
     type = models.CharField(max_length=32)
     last_tick = models.DateTimeField(null=True)
-    next_tick = models.IntegerField(null=True)
+    next_tick = models.IntegerField(null=True)  # seconds from last_tick
     gamestate = models.JSONField(default=dict)
     options = models.JSONField(default=dict)
     history = models.JSONField(default=list)  # [ [<keyframe>, <event>, ..], ..]
@@ -96,4 +96,4 @@ class Game(models.Model):
 
     # this takes a timestamp instead of checking the time because we might be in a replay
     def has_ticked(self, timestamp):
-        return timestamp - self.last_tick > timedelta(seconds=self.next_tick))
+        return timestamp - self.last_tick > timedelta(seconds=self.next_tick)
