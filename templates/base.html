@@ -10,12 +10,14 @@
 {% block sit_button %}
     function sit(seat) {
         $.post('../sit/', {seat: seat, type: gametype, game: {{game.id}}}, function(data) {
+	    if('error' in data) {
+		$('#sitstat').html(data['error'])
+		window.timeoutid = setTimeout(() => $('#sitstat').html('<br>'), 4000)
+		return
+	    }
             $('#sitstat').html('Joined game')
 	    window.timeoutid = setTimeout(() => $('#sitstat').html('<br>'), 4000)
-	}).fail(function(response) {
-	    $('#sitstat').html(response.responseJSON['error'])
-            window.timeoutid = setTimeout(() => $('#sitstat').html('<br>'), 4000)
-	});	
+	});
     }
 </script>
 {% endblock %}

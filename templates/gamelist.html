@@ -1,7 +1,7 @@
-{% if request.session.name %}
-    hello <span id="name">{{ request.session.name }}</span><br><br>
+{% if name %}
+    hello <span id="name">{{ name }}</span><br><br>
 {% else %}
-    please choose a name<br><br>
+    please chogose a name<br><br>
 {% endif %}
 My Games<br>
 {% for game in my_games %}

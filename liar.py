@@ -228,10 +228,10 @@ class LiarRules(Rules):
             return -1
         return game.options['timer']
 
-    def gameboard_context(self, request, seat, game, gamestate, now):
+    def gameboard_context(self, name, seat, game, gamestate, now):
         response = Box()
         gameboard_context = game.response(self.response(game, seat), now)
-        gameboard_context.name = request.session.get('name')
+        gameboard_context.name = name
         gameboard_context.p1_name = game.people[0][0] if len(game.people[0]) else 'p1'
         gameboard_context.p2_name = game.people[0][1] if len(game.people[0]) > 1 else 'p2'
         gameboard_context.active = game.status == 1

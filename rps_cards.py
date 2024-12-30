@@ -362,7 +362,7 @@ class Mountain(RPSCard):
         add_message(delta, f"{seat}: Mountain hits! 15 + [l]{level} * 10[/l] = {total}")
 
     def crack(cls):
-        cracked_names = list(map(lambda card: card['name'], filter(lambda card: not card.cracked, other.cards)))
+        cracked_names = list(map(lambda card: card['name'], filter(lambda card: not card.cracked and not card.type == DEFAULT, other.cards)))
         for card in other.cards:
             card.cracked = True
             update(delta, {opp(seat): {'cards': other.cards}})

@@ -6,7 +6,7 @@
 {% endblock %}
 {% block extra_js %}
  {{ block.super }}
-
+    
     var load = true;
     function register() {
         load = true;
@@ -21,29 +21,22 @@
             $('#sitstat').html(response)
         });
     }
-    var timer = new Timer({
-        fps: 1,
-        run: function () {
-            if($('#gamelist').is(':empty') ) {
-                load = true;
-            }
-            $.post('gamelist/', {load: load}, function (response) {
-                if ('error' in response) {
-                     $('#mygames').html(response['error'])
-                } else {
-                    if (response['gamelist'] != 'U') {
-                         $('#gamelist').html( response['gamelist'])
-                    }
-                    $('#name').html(response['name'])
-                }
-            }).fail(function (response) {
-                console.log(response)
-            });
-            load = false;
-        }
-    });
 
-    timer.start();
+    const myWorker = new Worker("static/update_worker.js");
+    myWorker.postMessage({'name': '{{request.session.name}}', 'task': 'gamelist', 'fps': 1})
+
+    myWorker.onmessage = function(e) {
+      response = JSON.parse(e.data);
+      if ('error' in response) {
+        $('#mygames').html(response['error'])
+      } else {
+        if (response['gamelist'] != 'U') {
+          $('#gamelist').html( response['gamelist'])
+        }
+        $('#name').html(response['name'])
+      }
+    }
+
 </script>
 {% endblock extra_js %}
 
