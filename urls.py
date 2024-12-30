@@ -18,15 +18,16 @@ from django.urls import include, path, re_path
 
 from tipr.views import *
 
+
 urlpatterns = [ 
-    path('planetrip/', include('planetrip.urls')),    
+    path('planetrip/', include('planetrip.urls')),
+    path('goop/', include('goop.urls')),        
     path('admin/', admin.site.urls),
     path('', Home.as_view(), name='home'),
     path('register/', Register.as_view(), name='register'),
     path('sit/', Sit.as_view(), name='sit'),
-    path('update/', Update.as_view(), name='update'),
     path('submit/', Submit.as_view(), name='submit'),
-    path('gamelist/', GameList.as_view(), name='gamelist'),
-    path('changes', Changes.as_view(), name='changes'),
+    path('update_worker.js', Worker.as_view(), name='worker'),
     re_path('game/(?P<id>\d+)', GamePage.as_view(), name='game'),
 ]
+

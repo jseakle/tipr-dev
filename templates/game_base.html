@@ -11,62 +11,49 @@
 function submit(move) {
     clearTimeout(window.timeoutid)
     console.log(move)
-    $.post('../submit/', {move: move}, function(data) {
+    $.post('../submit/', {game: window.location.pathname.match(/\d+/)[0], move: move}, function(data) {
+	if('error' in data) {
+	    $('#movestat').html(data['error'])
+            window.timeoutid =setTimeout(() => $('#movestat').html('<br>'), 4000)
+	    return
+	}
+
         $('#movestat').html('submitted ' + move)
         window.timeoutid = setTimeout(() => $('#movestat').html('<br>'), 4000)
-    }).fail(function(response) {
-        $('#movestat').html(response.responseJSON['error'])
-        window.timeoutid =setTimeout(() => $('#movestat').html('<br>'), 4000)
+
     });
 }
 var load = true;
-var timer = new Timer({
-    fps: {{fps}},  
-    run: function () {
-        if($('#gameboard').is(':empty')) {
-            load = true;
-            console.log('loading')
+const myWorker = new Worker("../static/update_worker.js");
+myWorker.postMessage({'name': '{{request.session.name}}', 'id': window.location.pathname.match(/\d+/)[0], 'task': 'update', 'fps': {{fps}}})
+
+myWorker.onmessage = function(e) {
+    response = JSON.parse(e.data);
+    if ('error' in response) {
+        $('#game').html(response['error'])
+    } else {
+        if (response['gameboard'] != 'U') {
+	    
+            var old_height = $('#gameboard').prop('scrollHeight');
+            var old_scroll = $('#gameboard').scrollTop();
+            $('#gameboard').html( response['gameboard'])
+            //$('#gameboard #board').html(JSON.stringify(JSON.parse($('#gameboard #board_json').text()), null, 2))
+            $('#gameboard').scrollTop(old_scroll + $('#gameboard').height() - old_height);
         }
-        $.post('../update/', {load: load}, function (response) {
-            if ('error' in response) {
-                $('#game').html(response['error'])
+        if (response['chat'] != 'U') {
+            var old_scroll = $('#chat').scrollTop();
+            var remaining = $('#chat').prop('scrollHeight')- ($('#chat').scrollTop() + $('#chat').height());
+            $('#chat_container').html(response['chat']);
+            if(remaining > 20) {
+                $('#chat').scrollTop(old_scroll);
             } else {
-                if (response['gameboard'] != 'U') {
-		    
-                    var old_height = $('#gameboard').prop('scrollHeight');
-                    var old_scroll = $('#gameboard').scrollTop();
-                    $('#gameboard').html( response['gameboard'])
-                    //$('#gameboard #board').html(JSON.stringify(JSON.parse($('#gameboard #board_json').text()), null, 2))
-                    $('#gameboard').scrollTop(old_scroll + $('#gameboard').height() - old_height);
-                }
-                if (response['chat'] != 'U') {
-                    var old_scroll = $('#chat').scrollTop();
-                    var remaining = $('#chat').prop('scrollHeight')- ($('#chat').scrollTop() + $('#chat').height());
-                    $('#chat_container').html(response['chat']);
-                    if(remaining > 20) {
-                        $('#chat').scrollTop(old_scroll);
-                    } else {
-                        $('#chat').scrollTop($('#chat').prop('scrollHeight'));
-                    }
-                    //console.log(response)
-                }
-                $('#timer').html(response['timer'])
+                $('#chat').scrollTop($('#chat').prop('scrollHeight'));
             }
-        }).fail(function (response) {
             //console.log(response)
-        });
-        load = false;
+        }
+        $('#timer').html(response['timer'])
     }
-});
+}
+    
 
-timer.start();
-
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    timer.slow()
-  }
-  else {
-    timer.start()
-  }
-});
 {% endblock extra_js %}

@@ -278,15 +278,15 @@ class RPSRules(Rules):
         stage = game.gamestate['meta']['stage']
         if stage <= 3:
             return game.options['timer']
-        elif stage == 4 and not game.gamestate['meta']['messages']:
+        elif stage == 4 and not game.gamestate['meta']['message']:
             return 0
         else:
             return 2
 
-    def gameboard_context(self, request, seat, game, gamestate, now):
+    def gameboard_context(self, name, seat, game, gamestate, now):
         response = Box()
         gameboard_context = game.response(self.response(game, seat), now)
-        gameboard_context.name = request.session.get('name')
+        gameboard_context.name = name
 
         gamestate = Box(gameboard_context.gamestate)
         stage = gamestate.meta.stage

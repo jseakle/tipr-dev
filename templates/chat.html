@@ -1,5 +1,16 @@
-<div id="chat" style="height:30%;width:98%;position:fixed;bottom:0;border:1px solid #ccc;overflow:auto">
+<script>
+  $("#chatbox").on('keyup', function (event) {
+    if (event.keyCode === 13) {
+	submit("\"chat: " + $("#chatbox").val() + "\"")
+	$("#chatbox").val('')
+    }
+});
+</script>
+<div style="height:30%;width:98%;position:fixed;bottom:0">
+<div id="chat" style="height:90%;border:1px solid #ccc;overflow:auto">
 {% for message in chat_log %}
     {{ message }} <br>
 {% endfor %}
+</div>
+<input type="text" style="width: 98%;" id="chatbox">
 </div>

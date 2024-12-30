@@ -3,7 +3,7 @@
 {% if seat != 'p1' and not active %}
 <button id="sit" onclick="sit(1)">Join</button>
 {% endif %}
-Hi {{ request.session.name }}, you are {{ seat }}<br>
+Hi {{ name }}, you are {{ seat }}<br>
 {% if not active %}Waiting for opponent{% endif %}
 <div id="timer"></div>
 {% endblock gameboard %}

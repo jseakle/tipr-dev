@@ -81,7 +81,7 @@ def update(d, u):
     for k, v in u.items():
         if v == 'del':
             del d[k]
-        if v is None:
+        elif v is None:
             d[k] = None
         elif k == 'dins':  # 'delta insert'
             if 'ins' in d:
@@ -129,7 +129,7 @@ def update(d, u):
             try:
                 d[k] = v
             except Exception as e:
-                logging.warning(f"Update error: {e}, {d}, {k}, {y}")
+                logging.warning(f"Update error: {e}, {d}, {k}, {v}")
                 #s()
     return d
 

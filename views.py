@@ -9,6 +9,7 @@ from django.db import transaction
 from tipr.utils import *
 from django.http.response import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect
+from django.template.loader import render_to_string
 from django.views import View
 
 from tipr.models import Game
@@ -40,6 +41,7 @@ class Register(View):
         name = request.POST.get('name')
         if not name or name in reserved_names:
             return JsonResponse({'error': 'please choose a different name'})
+        cache.set(request.session.session_key, name)
         request.session['name'] = name
 
         next = request.session.get('redirected_from')
@@ -51,7 +53,7 @@ class Sit(View):
     def post(self, request):
         name = request.session.get('name')
         if not name:
-            return {'error': 'please register a name first'}
+            return JsonResponse({'error': 'please register a name first'})
         seat = int(request.POST.get('seat'))
         gameid = request.POST.get('game')
         if not gameid:
@@ -67,7 +69,7 @@ class Sit(View):
         else:
             game = Game.objects.get(pk=gameid)
             if game.people[0][seat]:
-                return JsonResponse({'error': 'seat already taken'}, status=500)
+                return JsonResponse({'error': 'seat already taken'})
             game.people[0][seat] = name
             game.people[1][seat] = True
             if all(game.people[1]):
@@ -83,33 +85,32 @@ def get_seat(game, name):
         seat = game.people[0].index(name)  # 0 is p1
     return seat
 
-class Update(View):
-    def post(self, request):
+class Update(object):
+
+    @staticmethod
+    def do(name, id, load):
 
         with transaction.atomic():
             now = tznow()
-            name = request.session.get('name')
-            id = request.session.get('gameid')
 
             if id:
                 game = Game.objects.filter(pk=id)
             else:
                 game = None
             if not game:
-                return JsonResponse({'error': 'This game does not exist'})
+                return {'error': 'This game does not exist'}
             game = game.get()
             if game.status == CREATED:
                 pass
-                #return JsonResponse({'error': 'waiting for all players to be ready'})
+                #return {'error': 'waiting for all players to be ready'}
             gamestate = Box(game.gamestate)
 
             rules = rules_classes[game.type]
             seat = get_seat(game, name)
 
             if seat == -1 or game.status != ACTIVE:
-                resp = rules.render_gameboard(request, seat, game, gamestate, now)
-                logging.warning(resp)
-                return JsonResponse(resp)
+                resp = rules.render_gameboard(name, load, seat, game, gamestate, now)
+                return resp
 
             # account for start of game conditions
             if game.next_tick is None:
@@ -149,34 +150,49 @@ class Update(View):
                     message = f'error doing timed update: {e}\nresetting to {keyframe_name} {prev}'
                     game.chat('system', message, now)
                     game.rewind(1, message)
-                    return JsonResponse(rules.render_gameboard(request, seat, game, gamestate, now))
+                    return rules.render_gameboard(name, load, seat, game, gamestate, now)
 
-            gameboard = rules.render_gameboard(request, seat, game, gamestate, now)
+            gameboard = rules.render_gameboard(name, load, seat, game, gamestate, now)
             if ticked:
                 game.last_tick = now
                 game.next_tick = rules.next_tick(game)
                 game.save()
                 game.refresh_from_db()
-            return JsonResponse(gameboard)
+            return gameboard
 
 class Submit(View):
     def post(self, request):
         now = tznow()
         name = request.session.get('name')
         try:
-            game = Game.objects.filter(people__0__contains=name, status=ACTIVE).get()
+            game = int(request.POST.get('game'))
+            game = Game.objects.filter(pk=game).get()
         except:
-            return JsonResponse({'error': 'no active game'}, status=500)
+            return JsonResponse({'error': f'game {game.people}  does not exist'})
+        move = json.loads(request.POST.get('move'))
+
+        if isinstance(move, str) and move.startswith('chat: '):
+
+            move = move[6:]
+            if move == 'rewind':
+                msg = f'{name} clicked rewind'
+                game.rewind(1, msg)
+                return JsonResponse({})
+            game.chat(name, move)
+            return JsonResponse({})
+                
+
         rules = rules_classes[game.type]
         seat = get_seat(game, name)
+        if seat == -1:
+            return JsonResponse({'error': f'{name} tried to move but is not a player'})
         # {"type": "selection", "selection": <slot>}
         logging.warn(c(f'MOVE: {seat} {request.POST.get("move")}', "red"))
-        move = json.loads(request.POST.get('move'))
         delta = rules.move(game, seat, move)
         logging.warning(f"DELTA {delta} from {move}")
         if 'error' in delta:
             logging.warn(delta)
-            return JsonResponse(delta, status=500)
+            return JsonResponse(delta)
         game.event('move', move, now)
         update(game.gamestate, delta)
         game.save()
@@ -196,12 +212,14 @@ class GamePage(View):
         return render(request, f'{game.type}.html',
                       {'game': game, 'gametype': game.type, 'seat': get_seat(game, request.session.get('name')), **rules_classes[game.type].gameboard_data(game)})
 
-class GameList(View):
-    def post(self, request):
-        name = request.session.get('name')
+class GameList(object):
+
+    @staticmethod
+    def do(name, load):
         response = Box()
         response.name = name
         gamelist_context = Box()
+        gamelist_context.name = name
         gamelist_context.my_games = []
         gamelist_context.other_games = []
         for game in Game.objects.filter(status__lt=FINISHED):
@@ -210,18 +228,17 @@ class GameList(View):
 
             else:
                 gamelist_context.other_games.append(game)
-
-        response.gamelist = render(request, 'gamelist.html', gamelist_context).content.decode()
-        if not request.POST.get('load') and response.gamelist == cache.get(f'{name}_gamelist'):
+        response.gamelist = render_to_string('gamelist.html', gamelist_context)
+        if not load and response.gamelist == cache.get(f'{name}_gamelist'):
             response.gamelist = 'U'
         else:
             cache.set(f'{name}_gamelist', response.gamelist)
 
-        return JsonResponse(response)
-
-class Changes(View):
-    def get(self, request):
-        response = render(request, 'changes.txt')
-        response['Content-Disposition'] = "Content-Type: text/plain;"
         return response
 
+ 
+class Worker(View):
+    def get(self, request):
+        logging.warning('huh?')
+        resp = HttpResponse(render_to_string('update_worker.js'), content_type='application/javascript', headers={'Cache-Control': 'no-store'})
+        return resp

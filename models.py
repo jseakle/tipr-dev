@@ -36,12 +36,16 @@ class Game(models.Model):
                               'timestamp': timestamp.timestamp()}])
         self.save()
 
+    # reinflate history at a non-keyframe point in time
     # interval_idx: keyframe to start from, as an index into the history list
     # count: number of states forward from keyframe to include. 0 = all for this keyframe.
+    # last_only: just the specified state if True, all starting at keyframe if False
     @staticmethod
     def intermediate_states(history, interval_idx, count=0, last_only=False):
         try:
+            # rewinds are part of linear history, but not part of blessed history. exclude them.
             interval = list(filter(lambda interval: 'rewound' not in interval[0], history))[interval_idx]
+        # 
         except IndexError:
             return None
         frame = interval[0]
@@ -82,8 +86,9 @@ class Game(models.Model):
         })
 
     def rewind(self, keyframes, reason):
-        self.gamestate = self.history[-keyframes][0]['info']
-        for i in range(keyframes):
+        blessed_history = list(filter(lambda interval: 'rewound' not in interval[0], self.history))
+        self.gamestate = blessed_history[-(keyframes+1)][0]['info']
+        for i in range(1, keyframes+1):
             self.history[-i][0]['rewound'] = True
         if self.status == ACTIVE:
             now = tznow()
@@ -91,7 +96,6 @@ class Game(models.Model):
             self.next_tick = -1
             self.chat('system', reason, now)
             self.event('rewind', reason, now)
-            self.keyframe()
         self.save()
 
     # this takes a timestamp instead of checking the time because we might be in a replay
