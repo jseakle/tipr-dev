@@ -104,7 +104,7 @@ class RPSCard(object):
         cls.abilities = update(Box({
             1: cls.level_up,
             2: cls.level_damage,
-        }), {3+i:getattr(cls, x) for i, x in enumerate(reversed(cls.ability_order))})
+        }), {3+i:getattr(cls, x) for i, x in enumerate(reversed(cls.ability_order))}, log=False)
         cls.abilities[len(cls.ability_order)+3] = cls.start
 
     @classmethod

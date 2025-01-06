@@ -14,8 +14,9 @@
         $.post('register/', {name: document.getElementsByName('name')[0].value}, function(data) {})
         .fail(function(response) {console.log(response)});
     }
-    function sit(seat, type) {
-        $.post('sit/', {'seat': seat, 'type': type}, function(data) {
+    function sit(seat, type, options='') {
+        console.log(JSON.stringify(options))
+        $.post('sit/', {'seat': seat, 'type': type, 'options': JSON.stringify(options)}, function(data) {
             $('#sitstat').html('sat in ' + seat)
         }).fail(function(response) {
             $('#sitstat').html(response)
@@ -46,6 +47,8 @@ what name you want?
 <button name="ok" onclick="register()">ok</button><br>
 <button name="rps" onclick="sit(0, 'rps')">rps</button>
 <button name="liar" onclick="sit(0, 'liar')">liar</button>
+<input id='groups_count' style='width:15px'>
+<button name="liar" onclick="sit(0, 'groups', {'player_count': Number($('#groups_count')[0].value)})">groups</button>
 <div id="sitstat"></div><br>
 <div id="gamelist"></div>
 

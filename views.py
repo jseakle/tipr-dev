@@ -15,10 +15,11 @@ from django.views import View
 from tipr.models import Game
 from tipr.rps import RPSRules
 from tipr.liar import LiarRules
-
+from tipr.groups import GroupsRules
 rules_classes = {
     'rps': RPSRules(),
     'liar': LiarRules(),
+    'groups': GroupsRules(),
 }
 reserved_names = ['']
 
@@ -30,11 +31,13 @@ def pause_others(game):
         return
     game.status = ACTIVE
     game.save()
-    for g in (Game.objects.filter(status=ACTIVE) | \
-             Game.objects.filter(people__0__contains=game.people[0][0]) | \
-             Game.objects.filter(people__0__contains=game.people[0][1])).exclude(id=game.pk):
-        g.status = PAUSED
-        g.save()
+    games_with_users = Game.objects.filter(status=ACTIVE, people__0__contains=game.people[0][0])
+    for i in range(1, game.options['player_count']):
+        games_with_users |= Game.objects.filter(status=ACTIVE, people__0__contains=game.people[0][i])
+    for g in games_with_users:
+        if g.pk != game.pk:
+            g.status = PAUSED
+            g.save()
 
 class Register(View):
     def post(self, request):
@@ -54,22 +57,27 @@ class Sit(View):
         name = request.session.get('name')
         if not name:
             return JsonResponse({'error': 'please register a name first'})
-        seat = int(request.POST.get('seat'))
         gameid = request.POST.get('game')
         if not gameid:
             game_type = request.POST.get('type')
             rules = rules_classes[game_type]
-            options = update(rules.DEFAULT_OPTIONS.copy(), request.POST.get('options'))
-            options['deck'] = RPSRules.deck()
+            logging.warning(request.POST)
+            optarg = json.loads(request.POST.get('options') or '')
+            options = update(rules.DEFAULT_OPTIONS.copy(), optarg or {})
+            if game_type == 'rps':
+                options['deck'] = RPSRules.deck()
             starting_seats = [['']*options['player_count'], [False]*options['player_count']]
-            starting_seats[0][seat] = name
-            starting_seats[1][seat] = True
-            game = Game(type=game_type, people=starting_seats, options=options, gamestate=rules.start_state(options))
+            starting_seats[0][0] = name
+            starting_seats[1][0] = True
+            game = Game(type=game_type, people=starting_seats, options=options, gamestate=rules.start_state(Box(options)))
             game.keyframe()
         else:
             game = Game.objects.get(pk=gameid)
-            if game.people[0][seat]:
-                return JsonResponse({'error': 'seat already taken'})
+            seat = len([x for x in game.people[1] if x])
+            if seat >= game.options['player_count']:
+                return JsonResponse({'error': 'no free seats'})
+            if name in game.people[0][:game.options['player_count']]:
+                return JsonResponse({'error': 'only join once please'})
             game.people[0][seat] = name
             game.people[1][seat] = True
             if all(game.people[1]):
@@ -81,7 +89,7 @@ class Sit(View):
 
 def get_seat(game, name):
     seat = -1
-    if name and name in game.people[0][:2]:
+    if name and name in game.people[0][:game.options['player_count']]:
         seat = game.people[0].index(name)  # 0 is p1
     return seat
 
@@ -122,15 +130,14 @@ class Update(object):
 
             ticked = False
             if rules.should_update(game, gamestate, now):
-                logging.warning(2)
                 ticked = True
                 keyframe_name = rules.keyframe_name
                 prev = gamestate.meta[keyframe_name]
                 try:
                     delta = rules.do_update(game)
-                    logging.warn(c(f'TICK: {delta}', "red"))
+                    #logging.warn(c(f'TICK: {delta}', "red"))
                     update(gamestate, delta)
-                    logging.warn(f'TICK COMPLETE: {gamestate}')
+                    #logging.warn(f'TICK COMPLETE: {gamestate}')
 
                     for message in gamestate.meta.message:
                         game.chat('system', message, now)
@@ -142,6 +149,7 @@ class Update(object):
                             game.chat('system', winner, now)
                             game.status = FINISHED
                         game.keyframe()
+                        game.refresh_from_db()
                     else:
                         game.event('time', delta, now)
                 except Exception as e:
@@ -168,7 +176,8 @@ class Submit(View):
             game = int(request.POST.get('game'))
             game = Game.objects.filter(pk=game).get()
         except:
-            return JsonResponse({'error': f'game {game.people}  does not exist'})
+            return JsonResponse({'error': f'game {request.POST.get("game")}  does not exist'})
+        logging.warning(f'gr {request.POST}')
         move = json.loads(request.POST.get('move'))
 
         if isinstance(move, str) and move.startswith('chat: '):
@@ -207,10 +216,13 @@ class Home(View):
 class GamePage(View):
     def get(self, request, id):
         game = Game.objects.get(pk=id)
-        pause_others(game)
+        name = request.session.get('name')
+        if name in game.people[0]:
+            pause_others(game)
         request.session['gameid'] = game.pk
+        seat = get_seat(game, name)
         return render(request, f'{game.type}.html',
-                      {'game': game, 'gametype': game.type, 'seat': get_seat(game, request.session.get('name')), **rules_classes[game.type].gameboard_data(game)})
+                      {'game': game, 'gametype': game.type, 'seat': seat, **rules_classes[game.type].game_data(game, seat)})
 
 class GameList(object):
 

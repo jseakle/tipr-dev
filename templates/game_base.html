@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-
 {% block head %}
 {{ block.super }}
 <link type="text/css" rel="stylesheet" href="https://tipr.tk/static/{{gametype}}.css" />
@@ -10,7 +9,7 @@
 {{block.super}}
 function submit(move) {
     clearTimeout(window.timeoutid)
-    console.log(move)
+  console.log("hi", move)
     $.post('../submit/', {game: window.location.pathname.match(/\d+/)[0], move: move}, function(data) {
 	if('error' in data) {
 	    $('#movestat').html(data['error'])
@@ -28,32 +27,35 @@ const myWorker = new Worker("../static/update_worker.js");
 myWorker.postMessage({'name': '{{request.session.name}}', 'id': window.location.pathname.match(/\d+/)[0], 'task': 'update', 'fps': {{fps}}})
 
 myWorker.onmessage = function(e) {
-    response = JSON.parse(e.data);
-    if ('error' in response) {
-        $('#game').html(response['error'])
-    } else {
-        if (response['gameboard'] != 'U') {
-	    
-            var old_height = $('#gameboard').prop('scrollHeight');
-            var old_scroll = $('#gameboard').scrollTop();
-            $('#gameboard').html( response['gameboard'])
-            //$('#gameboard #board').html(JSON.stringify(JSON.parse($('#gameboard #board_json').text()), null, 2))
-            $('#gameboard').scrollTop(old_scroll + $('#gameboard').height() - old_height);
-        }
-        if (response['chat'] != 'U') {
-            var old_scroll = $('#chat').scrollTop();
-            var remaining = $('#chat').prop('scrollHeight')- ($('#chat').scrollTop() + $('#chat').height());
-            $('#chat_container').html(response['chat']);
-            if(remaining > 20) {
-                $('#chat').scrollTop(old_scroll);
-            } else {
-                $('#chat').scrollTop($('#chat').prop('scrollHeight'));
-            }
-            //console.log(response)
-        }
-        $('#timer').html(response['timer'])
+  response = JSON.parse(e.data);
+  if ('error' in response) {
+    $('#game').html(response['error'])
+  } else {
+    if(response['gameboard'] != 'U') {
+      
+      var old_height = $('#gameboard').prop('scrollHeight');
+      var old_scroll = $('#gameboard').scrollTop();
+      $('#gameboard').html( response['gameboard'])
+      //$('#gameboard #board').html(JSON.stringify(JSON.parse($('#gameboard #board_json').text()), null, 2))
+      $('#gameboard').scrollTop(old_scroll + $('#gameboard').height() - old_height);
+      change_callback(response['change_callback_data']);
     }
+    if(response['chat'] != 'U') {
+      var old_scroll = $('#chat').scrollTop();
+      var remaining = $('#chat').prop('scrollHeight')- ($('#chat').scrollTop() + $('#chat').height());
+      $('#chat_container').html(response['chat']);
+      if(remaining > 20) {
+        $('#chat').scrollTop(old_scroll);
+      } else {
+        $('#chat').scrollTop($('#chat').prop('scrollHeight'));
+      }
+      //console.log(response)
+    }
+    if(response['timer']) {
+      $('#timer').html(response['timer'])
+    }
+  }
 }
-    
+
 
 {% endblock extra_js %}

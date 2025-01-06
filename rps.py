@@ -89,9 +89,6 @@ class RPSRules(Rules):
             case _:
                 return f'{player} {outcome}'
 
-    def response(self, game, seat):
-        return self.pure_response(Box(game.options), Box(game.gamestate), game.history, seat)
-
     def pure_response(self, options, gamestate, history, seat):
 
         if gamestate.meta.stage < 4 and seat != -1:
@@ -109,9 +106,6 @@ class RPSRules(Rules):
         return ((game.options.get('timed') or gamestate.meta.stage == 4)
                 and game.last_tick and game.has_ticked(timestamp)) or \
                (gamestate.meta.stage < 4 and any(gamestate.p1.stages.values()) and any(gamestate.p2.stages.values()))
-     
-    def do_update(self, game):
-        return self.pure_update(Box(game.options), Box(game.gamestate), game.history)
 
     def pure_update(self, options, gamestate, history):
         delta = empty_delta()
@@ -286,12 +280,12 @@ class RPSRules(Rules):
 
     def gameboard_context(self, name, seat, game, gamestate, now):
         response = Box()
-        gameboard_context = game.response(self.response(game, seat), now)
-        gameboard_context.name = name
+        gameboard_context = super().gameboard_context(name, seat, game, gamestate, now)
+        gameboard_context.update(game.response(self.response(game, seat), now))
 
         gamestate = Box(gameboard_context.gamestate)
         stage = gamestate.meta.stage
-        gameboard_context.seat = ('p1', 'p2', 'spectating')[seat]
+        gameboard_context.status = ('p1', 'p2', 'spectating')[seat]
         cards = []
         highest_slot = stage * 3 if stage < 4 else -1
         for card_dict in gamestate.p1.cards[:-2]:
@@ -321,9 +315,8 @@ class RPSRules(Rules):
         gameboard_context.p2_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p2.badges]
         gameboard_context.selections = [] if stage < 4 else [gamestate.p1.selection.slot, gamestate.p2.selection.slot]
         gameboard_context.timed = game.options.get('timed')
-        gameboard_context.active = game.status == ACTIVE
         return gameboard_context
     
     # could be a classmethod
-    def gameboard_data(self, game):
+    def game_data(self, game, seat):
         return {'cards': [{'name': c.name, 'slot': c.slot, 'text': c.text} for c in self.deck_text(game)], 'fps': game.options.get('fps', self.DEFAULT_OPTIONS['fps'])}

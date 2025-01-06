@@ -74,8 +74,10 @@ def combine_numeric_modifiers(mods):
 #   nothing, tuple -> tupleops(0). maybe. the idea is that this could handle "counters" in the future
 #   number, number -> new number
 #   number, tuple -> tupleops(number)
-def update(d, u):
-    logging.warning(f'{d}\n{u}')
+def update(d, u, log=True):
+    if log:
+        pass
+        #logging.warning(f'{d}\n{u}')
     if not u:
         return d
     for k, v in u.items():
@@ -138,7 +140,7 @@ class NoChange(object):
 
 # WARNING: THIS IS CURRENTLY FOR LIAR ONLY
 def gen_patch(state1, state2, rec=False):
-    logging.warning(f"gen {state1} {state2}")
+    #logging.warning(f"gen {state1} {state2}")
     # this can only happen on a recursive call, so the type is ok
 
     if rec:
@@ -152,7 +154,7 @@ def gen_patch(state1, state2, rec=False):
     
     ret = {}
 
-    if type(state1) in [str, int]:
+    if type(state1) in [str, int, bool]:
         logging.warning("BAR" + repr(ret))
         return state2
     
@@ -167,11 +169,11 @@ def gen_patch(state1, state2, rec=False):
             ret['ins'] = state2[len(state1):]
         else:
             ret['rep'] = state2
-        logging.warning("OO" + repr(ret))            
+        #logging.warning("OO" + repr(ret))            
         return ret
     
     if not state1:
-        logging.warning(f"N? {state1} {state2}")
+        #logging.warning(f"N? {state1} {state2}")
         return state2
 
     for key in state1.keys() | state2.keys():
@@ -223,12 +225,73 @@ class Box(oBox):
 
     def __init__(self, *args, **kwargs):
         kwargs['box_class'] = self.__class__
+        if len(args):
+            val = args[0]
+            if type(val) == dict:
+                string_keys = []
+                for key in val:
+                    if type(key) == str:
+                        try:
+                            string_keys.append(int(key))
+                        except:
+                            pass
+                for key in string_keys:
+                    val[int(key)] = val[str(key)]
+                    del val[str(key)]
+            args = (val,)
         super(Box, self).__init__(*args, **kwargs)
         
-    def __getattr__(self, name):
-        if name in ['del_values']:
-            setattr(self, name, [])
-        return super(Box, self).__getattr__(name)
+    # def __getattr__(self, name):
+    #     if name in ['del_values']:
+    #         setattr(self, name, [])
+    #     return super(Box, self).__getattr__(name)
+
+    # def __getitem__(self, key, *args, **kwargs):
+    #     if type(key) == int and key not in self:
+    #         return super().__getitem__(str(key), *args, **kwargs)
+    #     try:
+    #         return super().__getitem__(key, *args, **kwargs)
+    #     except Exception as e:
+    #         try:
+    #             return super().__getitem__(int(key), *args, **kwargs)
+    #         except ValueError:
+    #             raise e
+
+    # def __contains__(self, key, *args, **kwargs):
+    #     if type(key) == int and not super().__contains__(key):
+    #         return super().__contains__(str(key), *args, **kwargs)
+
+    #     has_str = super().__contains__(key, *args, **kwargs)
+    #     if not has_str:
+    #         try:
+    #             return super().__contains__(int(key), *args, **kwargs)
+    #         except ValueError:
+    #             return False
+    #     return True
+            
+
+    # def get(self, key, default=None, *args, **kwargs):
+    #     if type(key) == int and key not in self:
+    #         return super().get(str(key), default, *args, **kwargs)
+    #     if key not in self:
+    #         try:
+    #             return super().get(int(key), default, *args, **kwargs)
+    #         except ValueError:
+    #             pass
+    #     return super().get(key, default, *args, **kwargs)
+            
+
+    # def __setitem__(self, key, val, *args, **kwargs):
+    #     if type(key) == int and key not in self:
+    #         return super().__setitem__(str(key), val, *args, **kwargs)
+    #     try:
+    #         return super().__setitem__(key, val, *args, **kwargs)
+    #     except Exception as e:
+    #         try:
+    #             return super().__setitem__(int(key), val, *args, **kwargs)
+    #         except ValueError:
+    #             raise e
+        
 
     # enable assignment to possibly new fields even when a key on the path is a variable
     # box.get(var).foo = 5 doesn't work
@@ -247,3 +310,4 @@ def descendants(cls):
 
 def empty_delta():
     return Box({'meta': {'message': []}})
+
