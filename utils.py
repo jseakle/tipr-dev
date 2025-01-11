@@ -9,6 +9,15 @@ import traceback
 from box import Box as oBox
 from pdb import set_trace as s
 
+from channels.layers import get_channel_layer
+channel_layer = get_channel_layer()
+from asgiref.sync import async_to_sync
+
+
+def send(group, msg):
+    msg.update({'type': 'update'})
+    async_to_sync(channel_layer.group_send)(group, msg)
+
 def nothing():
     pass
 #s = nothing
@@ -77,7 +86,7 @@ def combine_numeric_modifiers(mods):
 def update(d, u, log=True):
     if log:
         pass
-        #logging.warning(f'{d}\n{u}')
+        logging.warning(f'{d}\n{u}')
     if not u:
         return d
     for k, v in u.items():
@@ -119,7 +128,7 @@ def update(d, u, log=True):
             if 'rep' in v:
                 d[k] = v['rep']
             if 'upd' in v:
-                logging.warn(f'{d} v: {v}')
+                #logging.warn(f'd: {d} v: {v}')
                 for idx, delta in v['upd'].items():
                     d[k][idx] = update(d[k][idx], delta)
         elif isinstance(v, collections.abc.Mapping):
@@ -162,6 +171,7 @@ def gen_patch(state1, state2, rec=False):
         if not state1:
             ret['ins'] = state2
         elif len(state1) == len(state2):
+            # There is a bug here with nested lists
             ret = {'upd': {x: gen_patch(state1[x], state2[x], True) for x in range(len(state1)) if state1[x] != state2[x]}}
         elif len(state2) < len(state1):
             ret['rep'] = state2

@@ -7,24 +7,27 @@
 
 {% block extra_js %}
 {{block.super}}
-function submit(move) {
+function submit(move, message=true, success=null) {
     clearTimeout(window.timeoutid)
   console.log("hi", move)
-    $.post('../submit/', {game: window.location.pathname.match(/\d+/)[0], move: move}, function(data) {
-	if('error' in data) {
-	    $('#movestat').html(data['error'])
-            window.timeoutid =setTimeout(() => $('#movestat').html('<br>'), 4000)
-	    return
-	}
-
-        $('#movestat').html('submitted ' + move)
-        window.timeoutid = setTimeout(() => $('#movestat').html('<br>'), 4000)
-
-    });
+  $.post('../submit/', {game: window.location.pathname.match(/\d+/)[0], move: move}, function(data) {
+    if('error' in data) {
+      $('#movestat').html(data['error'])
+      window.timeoutid =setTimeout(() => $('#movestat').html('<br>'), 4000)
+      return
+    }
+    if(message) {
+      $('#movestat').html('submitted ' + move)
+      window.timeoutid = setTimeout(() => $('#movestat').html('<br>'), 4000)
+    }
+    if(success) {success()} 
+  });
 }
 var load = true;
 const myWorker = new Worker("../static/update_worker.js");
-myWorker.postMessage({'name': '{{request.session.name}}', 'id': window.location.pathname.match(/\d+/)[0], 'task': 'update', 'fps': {{fps}}})
+//myWorker.postMessage({'name': '{{request.session.name}}', 'id': window.location.pathname.match(/\d+/)[0], 'task': 'update', 'fps': {{fps}}})
+const id = window.location.pathname.match(/\d+/)[0]
+myWorker.postMessage({'join': '{{gametype}}_'+id, 'task': 'update', 'id': id})
 
 myWorker.onmessage = function(e) {
   response = JSON.parse(e.data);
@@ -39,6 +42,9 @@ myWorker.onmessage = function(e) {
       //$('#gameboard #board').html(JSON.stringify(JSON.parse($('#gameboard #board_json').text()), null, 2))
       $('#gameboard').scrollTop(old_scroll + $('#gameboard').height() - old_height);
       change_callback(response['change_callback_data']);
+    }
+    if(response['inputs'] != 'U') {
+      $('#inputs').html(response['inputs'])
     }
     if(response['chat'] != 'U') {
       var old_scroll = $('#chat').scrollTop();

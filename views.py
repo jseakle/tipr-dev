@@ -16,13 +16,13 @@ from tipr.models import Game
 from tipr.rps import RPSRules
 from tipr.liar import LiarRules
 from tipr.groups import GroupsRules
+
 rules_classes = {
     'rps': RPSRules(),
     'liar': LiarRules(),
     'groups': GroupsRules(),
 }
 reserved_names = ['']
-
 
 def pause_others(game):
     if game.status == FINISHED:
@@ -50,6 +50,7 @@ class Register(View):
         next = request.session.get('redirected_from')
         if next:
             return redirect(next)
+        send('home', {'task': 'gamelist', 'load': False})
         return HttpResponse()
 
 class Sit(View):
@@ -61,7 +62,6 @@ class Sit(View):
         if not gameid:
             game_type = request.POST.get('type')
             rules = rules_classes[game_type]
-            logging.warning(request.POST)
             optarg = json.loads(request.POST.get('options') or '')
             options = update(rules.DEFAULT_OPTIONS.copy(), optarg or {})
             if game_type == 'rps':
@@ -83,8 +83,11 @@ class Sit(View):
             if all(game.people[1]):
                 game.status = ACTIVE
                 pause_others(game)
+                
         game.save()
         request.session['gameid'] = game.pk
+        send('home', {'task': 'gamelist', 'load': False})
+        send(f'{game.type}_{game.pk}', {'task': 'update', 'id': game.pk, 'load': False})
         return JsonResponse({'game': game.pk})  # unused, revisit
 
 def get_seat(game, name):
@@ -200,11 +203,12 @@ class Submit(View):
         delta = rules.move(game, seat, move)
         logging.warning(f"DELTA {delta} from {move}")
         if 'error' in delta:
-            logging.warn(delta)
+            logging.warn(f"error {delta}")
             return JsonResponse(delta)
         game.event('move', move, now)
         update(game.gamestate, delta)
         game.save()
+        send(f'{game.type}_{game.pk}', {'task': 'update', 'id': game.pk, 'load': False})
         return JsonResponse(game.response(rules.response(game, seat), now))
 
 

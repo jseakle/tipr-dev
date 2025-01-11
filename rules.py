@@ -7,6 +7,7 @@ class Rules(object):
     def winner(self, game):
         pass
 
+    # seat-specific view of gamestate
     def response(self, game, seat):
         return self.pure_response(Box(game.options), Box(game.gamestate), game.history, seat)
 
@@ -38,6 +39,18 @@ class Rules(object):
             response.gameboard = 'U'
         else:
             cache.set(f'{name}_{game.pk}_gameboard', response.gameboard)
+
+        # modularize this idea later
+        try:
+            response.inputs = render_to_string(f'{game.type}_inputs.html', gameboard_context)
+            
+            if not load and response.inputs == cache.get(f'{name}_{game.pk}_inputs'):
+                response.inputs = 'U'
+            else:
+                cache.set(f'{name}_{game.pk}_inputs', response.inputs)
+        except Exception:
+            pass
+            logging.exception('failed input render')        
         rendered_callback = json.dumps(response.change_callback_data)
         if not load and rendered_callback == cache.get(f'{name}_{game.pk}_change_callback_data'):
             response.change_callback_data = 'U'
