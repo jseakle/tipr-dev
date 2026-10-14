@@ -5,6 +5,16 @@
 <div id="board">
     <span style="background:#008CBA">{{ gamestate.p1.hp }}</span>
     <span style="background:#f44336">{{ gamestate.p2.hp }}</span><br>
+    {% if pattern %}
+    <div style="margin: 10px 0; padding: 5px; background: #333; border-radius: 3px;">
+        <strong>Pattern:</strong>
+        {% for type in pattern.sequence %}
+            <span style="{% if pattern.p1_indicator == forloop.counter0 %}background:#008CBA;{% elif pattern.p2_indicator == forloop.counter0 %}background:#f44336;{% else %}background:#555;{% endif %} padding: 2px 8px; margin: 0 2px; border-radius: 2px;">{{ type }}</span>
+            {% if not forloop.last %}→{% endif %}
+        {% endfor %}
+        | <strong>Reward:</strong> {{ pattern.reward_type|upper }} +{{ pattern.reward_amount }}
+    </div>
+    {% endif %}
 {% for card in cards %}
 <button id="{{ card.slot }}_button" style="background-color:{{ card.color }};width:130px;" name="{{ card.name }}"
         onclick="submit('{&quot;type&quot;: &quot;selection&quot;, &quot;selection&quot;: {{ card.slot }}}')" onmouseover="help({{ card.slot}})">

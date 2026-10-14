@@ -36,15 +36,18 @@ class RPSRules(Rules):
         }
 
     def start_state(self, options):
+        pattern = self.generate_pattern_reward()
+        pattern_names = [TYPES[t] for t in pattern['sequence']]
         starting_state = {
             'meta': {
                 'round': 1,
                 'stage': 1,
                 'outcome': {'player': None, 'type': None},  # 'win', 'ambush', 'default', 'draw', 'truce'
-                'message': ['Game Start']
+                'message': ['Game Start', f"Pattern: {' → '.join(pattern_names)}, Reward: {pattern['reward_type'].upper()} +{pattern['reward_amount']}"]
             },
             'p1': self.player_state(options),
             'p2': self.player_state(options),
+            'pattern': pattern
         }
         return starting_state
 
@@ -56,6 +59,115 @@ class RPSRules(Rules):
                 card_classes[cls.slot].append(cls)
         return [choice(card_classes[x]).__name__ for x in range(11)]
 
+    @staticmethod
+    def generate_pattern_reward():
+        """Generate a random 3-type sequence and reward for the pattern system."""
+        pattern = [choice([ROCK, PAPER, SCISSORS]) for _ in range(3)]
+
+        # Random reward - coins, health, or level up
+        reward_type = choice(['coins', 'health', 'level'])
+        if reward_type == 'coins':
+            reward_amount = choice([5, 7, 10, 12, 15])
+        elif reward_type == 'health':
+            reward_amount = choice([5, 10, 15, 20])
+        else:  # level
+            reward_amount = 1
+
+        return {
+            'sequence': pattern,
+            'reward_type': reward_type,
+            'reward_amount': reward_amount,
+            'indicators': {}  # {seat: position (0-2)}
+        }
+
+    def update_pattern_indicators(self, gamestate, delta):
+        """Update pattern indicators based on player RPS selections and award rewards.
+
+        Logic per design:
+        1. If player selected RPS ability of type to the right of indicator (or first type if no indicator), move indicator
+        2. Award rewards to players whose indicator is on third type (position 2)
+        3. If rewards awarded, regenerate pattern and remove all indicators
+        4. Remove indicators that didn't move
+        """
+        pattern = gamestate.pattern
+        sequence = pattern['sequence']
+        indicators = pattern['indicators']
+
+        # Get player selections (only RPS abilities)
+        p1_selection, p2_selection = self.get_selections(gamestate)
+        player_selections = {}
+        if p1_selection:
+            player_selections['p1'] = p1_selection
+        if p2_selection:
+            player_selections['p2'] = p2_selection
+
+        # Track which indicators will move
+        indicators_that_moved = set()
+
+        # First pass: determine which indicators will move
+        for seat, selection in player_selections.items():
+            ability_type = selection.card.type
+            current_pos = indicators.get(seat)
+
+            # Determine target type (type to the right, or first if no indicator)
+            if current_pos is None:
+                target_type = sequence[0]
+            else:
+                # Type to the right of current indicator
+                target_type = sequence[(current_pos + 1) % 3]
+
+            # Check if player selected the target type
+            if ability_type == target_type:
+                indicators_that_moved.add(seat)
+
+        # Second pass: award rewards to players at position 2 who will move
+        rewards_to_award = []
+        for seat in indicators_that_moved:
+            current_pos = indicators.get(seat)
+            if current_pos == 2:
+                rewards_to_award.append(seat)
+
+        # Third pass: award rewards
+        for seat in rewards_to_award:
+            reward_type = pattern['reward_type']
+            reward_amount = pattern['reward_amount']
+
+            if reward_type == 'coins':
+                update(delta, {seat: {'coins': (('add', reward_amount),)}})
+                add_message(delta, f"{seat} completes the pattern and earns ${reward_amount}!")
+            elif reward_type == 'health':
+                # Healing (negative damage)
+                update(delta, {seat: {'hp': (('add', reward_amount),)}})
+                add_message(delta, f"{seat} completes the pattern and gains {reward_amount} health!")
+            elif reward_type == 'level':
+                # Level up a random ability (pick a random card that's not TRUCE or INCOME)
+                import random
+                cards = gamestate.get(seat).cards[:9]  # exclude coin abilities
+                if cards:
+                    card_to_level = random.choice(cards)
+                    card_idx = card_to_level.slot
+                    update(delta, {seat: {'cards': {'upd': {card_idx: {'level': (('add', 1),), 'cracked': False}}}}})
+                    add_message(delta, f"{seat} completes the pattern and levels up {card_to_level.name}!")
+
+        # Fourth pass: if any rewards given, regenerate pattern and remove all indicators
+        if rewards_to_award:
+            new_pattern = RPSRules.generate_pattern_reward()
+            update(delta, {'pattern': {'replace': new_pattern}})
+            pattern_names = [TYPES[t] for t in new_pattern['sequence']]
+            add_message(delta, f"New pattern: {' → '.join(pattern_names)}, Reward: {new_pattern['reward_type'].upper()} +{new_pattern['reward_amount']}")
+        else:
+            # Fifth pass: move indicators that should move, remove others
+            new_indicators = {}
+            for seat in indicators_that_moved:
+                current_pos = indicators.get(seat)
+                if current_pos is None:
+                    # Place at beginning
+                    new_indicators[seat] = 0
+                else:
+                    # Move right (wraps to 0 if at position 2, but those got rewards above)
+                    new_indicators[seat] = (current_pos + 1) % 3
+
+            update(delta, {'pattern': {'indicators': {'replace': new_indicators}}})
 
     @staticmethod
     @functools.cache
@@ -203,6 +315,9 @@ class RPSRules(Rules):
                             delta.get(seat).selection = {'replace': {}}
                             delta.get(seat).ga('shields').this_turn = 0
 
+                        # Update pattern indicators and award rewards
+                        self.update_pattern_indicators(gamestate, delta)
+
                         add_message(delta, f'round {round} ends')
                         logging.warn(f"ONE: {delta}")
                         return delta
@@ -321,6 +436,18 @@ class RPSRules(Rules):
         gameboard_context.selections = [] if stage < 4 else [gamestate.p1.selection.slot, gamestate.p2.selection.slot]
         gameboard_context.timed = game.options.get('timed')
         gameboard_context.active = game.status == ACTIVE
+
+        # Add pattern information
+        if 'pattern' in gamestate:
+            pattern = gamestate.pattern
+            gameboard_context.pattern = {
+                'sequence': [TYPES[t] for t in pattern['sequence']],
+                'reward_type': pattern['reward_type'],
+                'reward_amount': pattern['reward_amount'],
+                'p1_indicator': pattern['indicators'].get('p1'),
+                'p2_indicator': pattern['indicators'].get('p2')
+            }
+
         return gameboard_context
     
     # could be a classmethod
