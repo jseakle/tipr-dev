@@ -127,6 +127,8 @@ class RPSRules(Rules):
             position = pattern.indicators.get(selection.seat, -1) + 1
             if position < 3 and selection.card.type == pattern.sequence[position]:
                 indicators[selection.seat] = position
+            elif selection.card.type == pattern.sequence[0]:
+                indicators[selection.seat] = 0
         rewarded = [seat for seat in seats if indicators.get(seat) == 2]
         for seat in rewarded:
             reward, amount = pattern.reward_type, pattern.reward_amount

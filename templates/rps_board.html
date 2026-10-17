@@ -8,10 +8,10 @@
     <span style="background:#008CBA">{{ gamestate.p1.hp|floatformat:"-2" }}/{{ gamestate.p1.max_hp|floatformat:"-2" }} ({{ p1_percent }}%) | Coins: ${{ gamestate.p1.coins|floatformat:"-2" }}</span>
     <span style="background:#f44336">{{ gamestate.p2.hp|floatformat:"-2" }}/{{ gamestate.p2.max_hp|floatformat:"-2" }} ({{ p2_percent }}%) | Coins: ${{ gamestate.p2.coins|floatformat:"-2" }}</span><br>
     {% if pattern %}
-    <div style="margin: 10px 0; padding: 5px; background: #333; border-radius: 3px;">
+    <div style="margin: 10px 0; padding: 5px; background: #eee; color: #000; border-radius: 3px;">
         <strong>Pattern:</strong>
         {% for type in pattern.sequence %}
-            <span style="{% if pattern.p1_indicator == forloop.counter0 and pattern.p2_indicator == forloop.counter0 %}background:#ffdb0d;{% elif pattern.p1_indicator == forloop.counter0 %}background:#008CBA;{% elif pattern.p2_indicator == forloop.counter0 %}background:#f44336;{% else %}background:#555;{% endif %} padding: 2px 8px; margin: 0 2px; border-radius: 2px;">{{ type }}</span>
+            <span style="{% if pattern.p1_indicator == forloop.counter0 and pattern.p2_indicator == forloop.counter0 %}background:#ffdb0d;{% elif pattern.p1_indicator == forloop.counter0 %}background:#008CBA;{% elif pattern.p2_indicator == forloop.counter0 %}background:#f44336;{% else %}background:#ccc;{% endif %} padding: 2px 8px; margin: 0 2px; border-radius: 2px;">{{ type }}</span>
             {% if not forloop.last %}→{% endif %}
         {% endfor %}
         | <strong>Reward:</strong> {{ pattern.reward_type|upper }} +{{ pattern.reward_amount }}
