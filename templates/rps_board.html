@@ -3,13 +3,15 @@
 {% block gameboard %}
 {{ block.super }}
 <div id="board">
-    <span style="background:#008CBA">{{ gamestate.p1.hp }}</span>
-    <span style="background:#f44336">{{ gamestate.p2.hp }}</span><br>
+    Round {{ gamestate.meta.round }} |
+    {% if gamestate.meta.stage < 4 %}Stage {{ gamestate.meta.stage }} of 3{% else %}Resolution{% endif %}<br>
+    <span style="background:#008CBA">{{ gamestate.p1.hp|floatformat:"-2" }}/{{ gamestate.p1.max_hp|floatformat:"-2" }} ({{ p1_percent }}%) | Coins: ${{ gamestate.p1.coins|floatformat:"-2" }}</span>
+    <span style="background:#f44336">{{ gamestate.p2.hp|floatformat:"-2" }}/{{ gamestate.p2.max_hp|floatformat:"-2" }} ({{ p2_percent }}%) | Coins: ${{ gamestate.p2.coins|floatformat:"-2" }}</span><br>
     {% if pattern %}
     <div style="margin: 10px 0; padding: 5px; background: #333; border-radius: 3px;">
         <strong>Pattern:</strong>
         {% for type in pattern.sequence %}
-            <span style="{% if pattern.p1_indicator == forloop.counter0 %}background:#008CBA;{% elif pattern.p2_indicator == forloop.counter0 %}background:#f44336;{% else %}background:#555;{% endif %} padding: 2px 8px; margin: 0 2px; border-radius: 2px;">{{ type }}</span>
+            <span style="{% if pattern.p1_indicator == forloop.counter0 and pattern.p2_indicator == forloop.counter0 %}background:#ffdb0d;{% elif pattern.p1_indicator == forloop.counter0 %}background:#008CBA;{% elif pattern.p2_indicator == forloop.counter0 %}background:#f44336;{% else %}background:#555;{% endif %} padding: 2px 8px; margin: 0 2px; border-radius: 2px;">{{ type }}</span>
             {% if not forloop.last %}→{% endif %}
         {% endfor %}
         | <strong>Reward:</strong> {{ pattern.reward_type|upper }} +{{ pattern.reward_amount }}
@@ -17,14 +19,41 @@
     {% endif %}
 {% for card in cards %}
 <button id="{{ card.slot }}_button" style="background-color:{{ card.color }};width:130px;" name="{{ card.name }}"
-        onclick="submit('{&quot;type&quot;: &quot;selection&quot;, &quot;selection&quot;: {{ card.slot }}}')" onmouseover="help({{ card.slot}})">
-    {{ card.name }}</button>
-{% if forloop.counter0 == 5 and not timed %}
-    &nbsp;&nbsp;&nbsp;<button style="background-color:{{ pass_color }};" name="pass" onclick="submit('-1')">Pass</button>
-{% endif %}
-{% if forloop.counter|divisibleby:3 == 1 %}<br>{% endif %}
+        title="{{ card.reason }}" {% if card.disabled %}disabled{% endif %}
+        onclick="chooseAbility({{ card.slot }})" onmouseover="help({{ card.slot }})">
+    {{ card.name }}<br>{{ card.type_label }}</button>
+{% if forloop.counter|divisibleby:3 %}<br>{% endif %}
 {% endfor %}
+<button id="pass_button" style="background-color:{{ pass_color }};width:130px;" name="pass"
+        {% if pass_disabled %}disabled{% endif %} onclick="submit(JSON.stringify({type: 'pass'}))">Pass stage</button><br>
+<strong>Coin abilities</strong><br>
+{% for coin in coins %}
+<button id="coin_{{ coin.name }}" style="background-color:{{ coin.color }};width:130px;"
+        title="{{ coin.reason }}" {% if coin.disabled %}disabled{% endif %}
+        onclick="submit(JSON.stringify({type: 'coin', ability: '{{ coin.name }}'}))">
+    {{ coin.name }} (${{ coin.cost }})</button>
+{% endfor %}<br>
+{% if infiltrate %}
+<label for="infiltrate-type">Infiltrate type:</label>
+<select id="infiltrate-type">
+    <option value="0">Rock</option><option value="1">Paper</option><option value="2">Scissors</option>
+</select><br>
+{% endif %}
+{% if modifiers %}
+<strong>Modifiers (paid when the matching ability happens)</strong><br>
+{% for modifier in modifiers %}
+<button id="modifier_{{ modifier.slot }}" style="background-color:{{ modifier.color }};width:130px;"
+        title="{{ modifier.text }}" {% if modifier.disabled %}disabled{% endif %}
+        onclick="submit(JSON.stringify({type: 'modifier', selection: {{ modifier.slot }}}))"
+        onmouseover="help({{ modifier.slot }})">
+    {{ modifier.name }} (${{ modifier.cost }})</button>
+{% if forloop.counter|divisibleby:3 %}<br>{% endif %}
+{% endfor %}
+{% endif %}
+{% for reveal in premonitions %}<div>{{ reveal }} was not chosen in an earlier stage.</div>{% endfor %}
 </div>
 <span style="background:#008CBA">{{gamestate.p1.shields.n}}🛡{{ p1_badges }}</span>
 <span style="background:#f44336">{{ p2_badges }}{{gamestate.p2.shields.n}}🛡</span>
+{% for restriction in p1_restrictions %}<div><span style="background:#008CBA">{{ restriction }}</span></div>{% endfor %}
+{% for restriction in p2_restrictions %}<div><span style="background:#f44336">{{ restriction }}</span></div>{% endfor %}
 {% endblock gameboard %}

@@ -1,455 +1,584 @@
-import functools
-import logging
+from collections.abc import Mapping
+from copy import deepcopy
+from math import isfinite
+from numbers import Real
 from random import choice, shuffle
-from tipr.utils import *
-from tipr.rps_cards import *
-from tipr.rules import Rules
+
+from .rps_cards import (
+    CARD_CLASSES, COIN_ABILITIES, DECKS, active_restrictions,
+    add_restriction, heal, health_percent, hurt, level_up,
+)
+from .rules import Rules
+from .utils import (
+    ACTIVE, BLUE, Box, FINISHED, GREEN, INCOME, PAPER, RED,
+    ROCK, SCISSORS, TRUCE, TYPES, WHITE, YELLOW,
+    gen_patch, opp, seats, update,
+)
 
 
 class RPSRules(Rules):
-
     keyframe_name = 'round'
-
     DEFAULT_OPTIONS = {
-        'timed': False,
-        'timer': 7,
+        'timed': True,
+        'timer': 10,
+        'starting_hp': 250,
         'player_count': 2,
         'fps': 8,
     }
     stage_dict = {'1': [], '2': [], '3': []}
 
+    @staticmethod
+    def fresh_stages():
+        return {'1': [], '2': [], '3': []}
+
+    @classmethod
+    def prepare_options(cls, options):
+        if not isinstance(options, Mapping):
+            raise ValueError('Options must be an object')
+        if 'max_hp' in options:
+            raise ValueError('max_hp is derived from starting_hp; configure starting_hp instead')
+        if 'modifier_costs' in options:
+            raise ValueError('Modifier costs are fixed to their ability tiers')
+        result = {**deepcopy(cls.DEFAULT_OPTIONS), **deepcopy(options)}
+        for name in ('starting_hp', 'timer', 'fps'):
+            value = result[name]
+            if isinstance(value, bool) or not isinstance(value, Real) or not isfinite(value) or value <= 0:
+                raise ValueError(f'{name} must be a positive number')
+        if not isinstance(result['timer'], int) or not isinstance(result['fps'], int):
+            raise ValueError('timer and fps must be whole numbers')
+        if not isinstance(result['starting_hp'], int):
+            raise ValueError('starting_hp must be a positive integer')
+        if (not isinstance(result['timed'], bool)
+                or type(result['player_count']) is not int or result['player_count'] != 2):
+            raise ValueError('RPS requires two players and a boolean timed option')
+        deck = result.get('deck')
+        if deck is None:
+            deck = cls.deck()
+        elif isinstance(deck, str):
+            deck = cls.deck(deck)
+        if not isinstance(deck, list) or len(deck) not in (9, 11):
+            raise ValueError('A deck must contain nine RPS abilities')
+        for slot, name in enumerate(deck[:9]):
+            if not isinstance(name, str) or name not in CARD_CLASSES or CARD_CLASSES[name].slot != slot:
+                raise ValueError(f'Invalid ability in deck slot {slot}')
+        result['deck'] = [CARD_CLASSES[name].__name__ for name in deck[:9]] + ['Truce', 'PaciveIncome']
+        return result
+
     def player_state(self, options):
-        STARTING_HP = 250
-        MAX_HP = STARTING_HP / .75
+        starting_hp = options.get('starting_hp', self.DEFAULT_OPTIONS['starting_hp'])
+        max_hp = starting_hp / .75
         return {
-            'max_hp': MAX_HP,
-            'hp': STARTING_HP,
-            'coins': 0,
-            'selection': {},  # {slot, ability_number, stage, timing}. Used for tracking in stage 4.
-            'badges': [],  # [[Name, Arg, Round], ..]
-            'badges_used': [],  # remembering during ability resolution
+            'max_hp': max_hp, 'hp': starting_hp, 'coins': 0,
+            'selection': {}, 'modifier': None, 'infiltrate': False,
+            'premonitions': {'2': [], '3': []},
+            'coins_spent': 0, 'damage_taken': 0, 'last_damage': 0,
+            'last_selection': None,
+            'badges': [], 'badges_used': [],
             'shields': {'n': 0, 'this_turn': 0},
-            'restrictions': [],  # [[Name, Arg, Source ("<ability> @ round #"), Duration], ..]
-            'stages': RPSRules.stage_dict,
-            'cards': [{'name': card.__name__, 'level': 1, 'cracked': False, 'type': card.type, 'slot': card.slot}
-                      for card in map(lambda name: globals()[name], options['deck'])]
+            'restrictions': [], 'stages': self.fresh_stages(),
+            'cards': [
+                {'name': name, 'level': 1, 'cracked': False,
+                 'type': CARD_CLASSES[name].type, 'slot': slot}
+                for slot, name in enumerate(options['deck'])
+            ],
         }
 
     def start_state(self, options):
+        options = self.prepare_options(options)
         pattern = self.generate_pattern_reward()
-        pattern_names = [TYPES[t] for t in pattern['sequence']]
-        starting_state = {
-            'meta': {
-                'round': 1,
-                'stage': 1,
-                'outcome': {'player': None, 'type': None},  # 'win', 'ambush', 'default', 'draw', 'truce'
-                'message': ['Game Start', f"Pattern: {' → '.join(pattern_names)}, Reward: {pattern['reward_type'].upper()} +{pattern['reward_amount']}"]
-            },
-            'p1': self.player_state(options),
-            'p2': self.player_state(options),
-            'pattern': pattern
+        return {
+            'meta': {'round': 1, 'stage': 1, 'outcome': {'player': None, 'type': None},
+                     'message': ['Game Start', self.pattern_message(pattern)]},
+            'p1': self.player_state(options), 'p2': self.player_state(options),
+            'pattern': pattern,
         }
-        return starting_state
 
     @staticmethod
-    def deck():
-        card_classes = [[] for _ in range(11)]
-        for cls in RPSCard.__subclasses__():
-            if hasattr(cls, 'slot'):
-                card_classes[cls.slot].append(cls)
-        return [choice(card_classes[x]).__name__ for x in range(11)]
+    def deck(mode: str = 'random'):
+        if mode == 'random':
+            cards = [choice(pair) for pair in zip(DECKS['basic'], DECKS['advanced'])]
+        elif mode in DECKS:
+            cards = DECKS[mode]
+        else:
+            raise ValueError(f'Unknown deck: {mode}')
+        return [card.__name__ for card in cards] + ['Truce', 'PaciveIncome']
 
     @staticmethod
     def generate_pattern_reward():
-        """Generate a random 3-type sequence and reward for the pattern system."""
-        pattern = [choice([ROCK, PAPER, SCISSORS]) for _ in range(3)]
-
-        # Random reward - coins, health, or level up
         reward_type = choice(['coins', 'health', 'level'])
-        if reward_type == 'coins':
-            reward_amount = choice([5, 7, 10, 12, 15])
-        elif reward_type == 'health':
-            reward_amount = choice([5, 10, 15, 20])
-        else:  # level
-            reward_amount = 1
-
+        amounts = {'coins': [5, 7, 10, 12, 15], 'health': [5, 10, 15, 20], 'level': [1]}
         return {
-            'sequence': pattern,
-            'reward_type': reward_type,
-            'reward_amount': reward_amount,
-            'indicators': {}  # {seat: position (0-2)}
+            'sequence': [choice([ROCK, PAPER, SCISSORS]) for _ in range(3)],
+            'reward_type': reward_type, 'reward_amount': choice(amounts[reward_type]),
+            'indicators': {},
         }
 
-    def update_pattern_indicators(self, gamestate, delta):
-        """Update pattern indicators based on player RPS selections and award rewards.
+    @staticmethod
+    def pattern_message(pattern):
+        names = ' -> '.join(TYPES[ability_type] for ability_type in pattern['sequence'])
+        return f"Pattern: {names}, reward: {pattern['reward_type']} +{pattern['reward_amount']}"
 
-        Logic per design:
-        1. If player selected RPS ability of type to the right of indicator (or first type if no indicator), move indicator
-        2. Award rewards to players whose indicator is on third type (position 2)
-        3. If rewards awarded, regenerate pattern and remove all indicators
-        4. Remove indicators that didn't move
-        """
-        pattern = gamestate.pattern
-        sequence = pattern['sequence']
-        indicators = pattern['indicators']
-
-        # Get player selections (only RPS abilities)
-        p1_selection, p2_selection = self.get_selections(gamestate)
-        player_selections = {}
-        if p1_selection:
-            player_selections['p1'] = p1_selection
-        if p2_selection:
-            player_selections['p2'] = p2_selection
-
-        # Track which indicators will move
-        indicators_that_moved = set()
-
-        # First pass: determine which indicators will move
-        for seat, selection in player_selections.items():
-            ability_type = selection.card.type
-            current_pos = indicators.get(seat)
-
-            # Determine target type (type to the right, or first if no indicator)
-            if current_pos is None:
-                target_type = sequence[0]
+    def _advance_pattern(self, state, selections=None):
+        pattern = state.pattern
+        indicators = {}
+        for selection in self.get_selections(state) if selections is None else selections:
+            if selection is None:
+                continue
+            position = pattern.indicators.get(selection.seat, -1) + 1
+            if position < 3 and selection.card.type == pattern.sequence[position]:
+                indicators[selection.seat] = position
+        rewarded = [seat for seat in seats if indicators.get(seat) == 2]
+        for seat in rewarded:
+            reward, amount = pattern.reward_type, pattern.reward_amount
+            if reward == 'coins':
+                state[seat].coins += amount
+            elif reward == 'health':
+                heal(state, seat, amount)
+            elif reward == 'level':
+                card = choice(state[seat].cards[:9])
+                level_up(state, seat, card.slot, amount)
             else:
-                # Type to the right of current indicator
-                target_type = sequence[(current_pos + 1) % 3]
-
-            # Check if player selected the target type
-            if ability_type == target_type:
-                indicators_that_moved.add(seat)
-
-        # Second pass: award rewards to players at position 2 who will move
-        rewards_to_award = []
-        for seat in indicators_that_moved:
-            current_pos = indicators.get(seat)
-            if current_pos == 2:
-                rewards_to_award.append(seat)
-
-        # Third pass: award rewards
-        for seat in rewards_to_award:
-            reward_type = pattern['reward_type']
-            reward_amount = pattern['reward_amount']
-
-            if reward_type == 'coins':
-                update(delta, {seat: {'coins': (('add', reward_amount),)}})
-                add_message(delta, f"{seat} completes the pattern and earns ${reward_amount}!")
-            elif reward_type == 'health':
-                # Healing (negative damage)
-                update(delta, {seat: {'hp': (('add', reward_amount),)}})
-                add_message(delta, f"{seat} completes the pattern and gains {reward_amount} health!")
-            elif reward_type == 'level':
-                # Level up a random ability (pick a random card that's not TRUCE or INCOME)
-                import random
-                cards = gamestate.get(seat).cards[:9]  # exclude coin abilities
-                if cards:
-                    card_to_level = random.choice(cards)
-                    card_idx = card_to_level.slot
-                    update(delta, {seat: {'cards': {'upd': {card_idx: {'level': (('add', 1),), 'cracked': False}}}}})
-                    add_message(delta, f"{seat} completes the pattern and levels up {card_to_level.name}!")
-
-        # Fourth pass: if any rewards given, regenerate pattern and remove all indicators
-        if rewards_to_award:
-            new_pattern = RPSRules.generate_pattern_reward()
-            update(delta, {'pattern': {'replace': new_pattern}})
-            pattern_names = [TYPES[t] for t in new_pattern['sequence']]
-            add_message(delta, f"New pattern: {' → '.join(pattern_names)}, Reward: {new_pattern['reward_type'].upper()} +{new_pattern['reward_amount']}")
+                raise ValueError(f'Unknown pattern reward: {reward}')
+            state.meta.message.append(f'{seat} completes the pattern: {reward} +{amount}')
+        if rewarded:
+            state.pattern = self.generate_pattern_reward()
+            state.meta.message.append(self.pattern_message(state.pattern))
         else:
-            # Fifth pass: move indicators that should move, remove others
-            new_indicators = {}
-            for seat in indicators_that_moved:
-                current_pos = indicators.get(seat)
-                if current_pos is None:
-                    # Place at beginning
-                    new_indicators[seat] = 0
-                else:
-                    # Move right (wraps to 0 if at position 2, but those got rewards above)
-                    new_indicators[seat] = (current_pos + 1) % 3
+            state.pattern.indicators = indicators
 
-            update(delta, {'pattern': {'indicators': {'replace': new_indicators}}})
+    def update_pattern_indicators(self, gamestate, delta):
+        state = Box(deepcopy(gamestate))
+        selections = self.get_selections(state)
+        update(state, delta)
+        self._advance_pattern(state, selections)
+        patch = gen_patch(gamestate, state)
+        delta.clear()
+        delta.update(patch)
+        return delta
 
     @staticmethod
-    @functools.cache
     def deck_text(game):
-        return [Box({'name': card.__name__, 'slot': card.slot, 'text': card.text})
-                for card in RPSCard.__subclasses__() if card.__name__ in game.options['deck']]
+        return [Box(name=card['name'], slot=card['slot'],
+                    text=CARD_CLASSES[card['name']].text,
+                    modifier=CARD_CLASSES[card['name']].modifier)
+                for card in game.gamestate['p1']['cards'][:9]]
 
     def get_selections(self, gamestate, seats=seats):
-        ret = []
+        result = []
         for seat in seats:
-            found = False
+            selection = None
             for stage in ('1', '2', '3'):
-                for action in gamestate[seat].stages[stage]:
-                    if action.kind == 'RPS':
-                        found = True
-                        ret.append(Box(seat=seat, stage=int(stage),
-                                       card=gamestate[seat].cards[action.slot]))  # modifiers go in here too
+                for action in gamestate[seat].stages.get(stage, []):
+                    if action['kind'] == 'RPS':
+                        card = Box(deepcopy(gamestate[seat].cards[action['slot']]))
+                        card.type = action.get('type', card.type)
+                        selection = Box(seat=seat, stage=int(stage), card=card,
+                                        modifier=action.get('modifier'))
                         break
-                if found:
+                if selection is not None:
                     break
-            if not found:
-                ret.append(None)
-        return ret
-
-    def outcome_message(self, player, outcome):
-        match outcome:
-            case 'truce':
-                return "Truce! Everyone loses 1 health."
-            case 'default':
-                return f'{opp(player)} wins by default'
-            case _:
-                return f'{player} {outcome}'
+            result.append(selection)
+        return result
 
     def response(self, game, seat):
         return self.pure_response(Box(game.options), Box(game.gamestate), game.history, seat)
 
     def pure_response(self, options, gamestate, history, seat):
+        state = Box(deepcopy(gamestate))
+        if state.meta.stage >= 4:
+            return state
+        visible = seats[seat] if seat in (0, 1) else None
+        for player in seats:
+            if player == visible:
+                continue
+            if history:
+                state[player].cards = deepcopy(history[-1][0]['info'][player]['cards'])
+            else:
+                for stage in ('1', '2', '3'):
+                    for action in state[player].stages.get(stage, []):
+                        if action.get('kind') == 'RPS' and 'previous_type' in action:
+                            state[player].cards[action.slot].type = action.previous_type
+            state[player].selection = {}
+            state[player].stages = self.fresh_stages()
+            state[player].modifier = None
+            state[player].infiltrate = False
+            state[player].premonitions = {'2': [], '3': []}
+        return state
 
-        if gamestate.meta.stage < 4 and seat != -1:
-            # this player's current view + other player's view at last keyframe
-            player = seats[seat]
-            other = opp(player)
-            for card in gamestate[other].cards:
-                if 'revealed' not in card:
-                    gamestate[other].cards[card.slot] = history[-1][0]['info'][other]['cards'][card.slot]
-            gamestate[other].selection = {}
-            gamestate[other].stages = RPSRules.stage_dict
-        return gamestate
+    def stage_complete(self, state, seat):
+        if self.get_selections(state, (seat,))[0] is not None:
+            return True
+        stage = state.meta.stage
+        if any(action['kind'] == 'pass' for action in state[seat].stages.get(str(stage), [])):
+            return True
+        return any(rest.name == 'StageBlocked' and rest.arg == stage
+                   for rest in active_restrictions(state, seat))
 
     def should_update(self, game, gamestate, timestamp):
-        return ((game.options.get('timed') or gamestate.meta.stage == 4)
-                and game.last_tick and game.has_ticked(timestamp)) or \
-               (gamestate.meta.stage < 4 and any(gamestate.p1.stages.values()) and any(gamestate.p2.stages.values()))
-     
+        if game.status != ACTIVE or self.winner(gamestate):
+            return False
+        stage = gamestate.meta.stage
+        if stage <= 3 and all(self.stage_complete(gamestate, seat) for seat in seats):
+            return True
+        return bool((game.options.get('timed', True) or stage == 4)
+                    and game.last_tick is not None and game.has_ticked(timestamp))
+
     def do_update(self, game):
         return self.pure_update(Box(game.options), Box(game.gamestate), game.history)
 
+    def _set_resolution(self, options, state, selected, timing=0, factor: float = 1, resolves=True):
+        card = selected.card
+        state[selected.seat].selection = {
+            'slot': card.slot, 'stage': selected.stage, 'chosen_type': card.type,
+            'level': card.level * factor, 'timing': timing,
+            'modifier': selected.get('modifier'),
+            'modifier_cost': CARD_CLASSES[card.name].modifier_cost(),
+            'ability_number': len(CARD_CLASSES[card.name].steps()) if resolves else 0,
+        }
+
+    def _begin_resolution(self, options, state):
+        p1, p2 = self.get_selections(state)
+        if p1 is None and p2 is None:
+            order = [Box(seat=seat, stage=0, card=state[seat].cards[TRUCE]) for seat in seats]
+            outcome = 'truce'
+            for selected in order:
+                self._set_resolution(options, state, selected)
+        elif p1 is None or p2 is None:
+            selected = p1 if p1 is not None else p2
+            assert selected is not None
+            other_seat = opp(selected.seat)
+            income = Box(seat=other_seat, stage=0, card=state[other_seat].cards[INCOME])
+            order = [income, selected]
+            outcome = 'default'
+            for action in order:
+                self._set_resolution(options, state, action)
+        elif p1.card.type == p2.card.type and p1.stage == p2.stage:
+            order = [p1, p2]
+            if (state.p1.hp, state.p1.coins) == (state.p2.hp, state.p2.coins):
+                shuffle(order)
+            else:
+                order.sort(key=lambda selected: (state[selected.seat].hp, state[selected.seat].coins),
+                           reverse=True)
+            outcome = 'tie'
+            for selected in order:
+                self._set_resolution(options, state, selected)
+        else:
+            if p1.card.type == p2.card.type:
+                winner, loser = (p1, p2) if p1.stage < p2.stage else (p2, p1)
+                outcome, factor, timing = 'ambush', .5, 0
+            else:
+                winner, loser = (p1, p2) if (p1.card.type - p2.card.type) % 3 == 1 else (p2, p1)
+                outcome, factor = 'win', 1
+                timing = max(0, loser.stage - winner.stage)
+            order = [winner, loser]
+            self._set_resolution(options, state, winner, timing, factor)
+            self._set_resolution(options, state, loser, resolves=False)
+        state.meta.stage = 4
+        state.meta.outcome = {'player': order[0].seat, 'type': outcome}
+        descriptions = {
+            'truce': 'Truce: both players take 1 damage and earn $1.',
+            'default': 'One player passes: +2 health and $2, then the selected ability.',
+            'tie': f'Same type and stage: {order[0].seat} acts first.',
+            'ambush': f'{order[0].seat} acts at half level, without timing bonuses.',
+            'win': f'{order[0].seat} wins RPS.',
+        }
+        state.meta.message.append(descriptions[outcome])
+
+    def _end_round(self, state):
+        selections = dict(zip(seats, self.get_selections(state)))
+        self._advance_pattern(state)
+        next_round = state.meta.round + 1
+        for seat in seats:
+            player = state[seat]
+            selected = selections[seat]
+            player.last_selection = ({'slot': selected.card.slot, 'type': selected.card.type}
+                                     if selected is not None else None)
+            player.last_damage = player.get('damage_taken', 0)
+            player.damage_taken = 0
+            player.coins_spent = 0
+            player.modifier = None
+            player.infiltrate = False
+            player.premonitions = {'2': [], '3': []}
+            player.stages = self.fresh_stages()
+            player.selection = {}
+            player.badges_used = []
+            player.shields.this_turn = 0
+            remaining = []
+            for restriction in player.restrictions:
+                if 'until' in restriction:
+                    if restriction.until >= next_round:
+                        remaining.append(restriction)
+                elif restriction.duration > 1:
+                    restriction.duration -= 1
+                    remaining.append(restriction)
+            player.restrictions = remaining
+        state.meta.message.append(f'Round {state.meta.round} ends')
+        state.meta.round = next_round
+        state.meta.stage = 1
+        state.meta.outcome = {'player': None, 'type': None}
+
     def pure_update(self, options, gamestate, history):
-        delta = empty_delta()
-        match gamestate.meta.stage:
-            case 1 | 2 as st:
-                delta.meta.stage = st + 1
-                return delta
-            case 3:
-                # Box(seat, stage, card)
-                p1_selection, p2_selection = self.get_selections(gamestate)
-                happens_first = Box(owner=None, slot=None, level=0, timing=0)
-                happens_second = Box(owner=None, slot=None, level=0, timing=0)
-                match p1_selection, p2_selection:
-                    case None, None:
-                        happens_first.update(owner='p1', slot=TRUCE)
-                        happens_second.update(owner='p2', slot=TRUCE)
-                        outcome = 'truce'
-
-                    case (Box() as w, None) | (None, Box() as w):
-                        loser = 'p2' if w.seat == 'p1' else 'p1'
-                        happens_first.update(owner=loser, slot=INCOME)
-                        happens_second.update(owner=w.seat, slot=w.card.slot, level=w.card.level)
-                        outcome = 'default'
-                    case Box() as p1, Box() as p2 if p1_selection.card.type == p2_selection.card.type:
-                        match p1_selection.stage, p2_selection.stage:
-                            case x, y if x == y:
-                                order = [p1, p2]
-                                if gamestate.p1.hp == gamestate.p2.hp and gamestate.p1.coins == gamestate.p2.coins:
-                                    shuffle(order)
-                                elif gamestate.p1.hp == gamestate.p2.hp:
-                                    order.sort(key=lambda box: gamestate[box.seat].coins, reverse=True)
-                                else:
-                                    order.sort(key=lambda box: gamestate[box.seat].hp, reverse=True)
-                                happens_first.update(owner=order[0].seat, slot=order[0].card.slot, level=order[0].card.level)
-                                happens_second.update(owner=order[1].seat, slot=order[1].card.slot, level=order[1].card.level)
-                                outcome = 'tie'
-                            case x, y:
-                                winner, loser = (p1, p2) if x < y else (p2, p1)
-                                happens_first.update(owner=winner.seat, slot=winner.card.slot,
-                                                     level=winner.card.level / 2,
-                                                     timing=1 if abs(x-y) == 2 else 0)
-                                outcome = 'ambush'
-                    case Box() as p1, Box() as p2:
-                        winner, loser = (p1, p2) if (p2.card.type + 1) % 3 == p1.card.type else (p2, p1)
-                        happens_first.update(owner=winner.seat, slot=winner.card.slot,
-                                             level=winner.card.level,
-                                             timing=max(0, loser.stage - winner.stage))
-                        outcome = 'win'
-
-                msg = self.outcome_message(happens_first.owner, outcome)
-                update(delta, {'meta': {'stage': 4, 'outcome': {'player': happens_first.owner, 'type': outcome}},
-                         happens_first.owner: {'selection':
-                               {'slot': happens_first.slot,
-                                'timing': happens_first.timing,
-                                # 'stage': when it was chosen
-                                'ability_number': len(globals()[options.deck[happens_first.slot]].ability_order) + 3}}})
-                add_message(delta, msg)
-                if happens_second.owner:
-                    update(delta, {happens_second.owner: {'selection':
-                        {'slot': happens_second.slot,
-                         'timing': 0,
-                         'ability_number': len(globals()[options.deck[happens_second.slot]].ability_order) + 3}}})
-                else:  # the card won't happen, but we might need the name
-                    delta.ga(opp(happens_first.owner)).selection = {'slot': loser.card.slot, 'ability_number': 0}
+        if self.winner(gamestate):
+            return {}
+        state = Box(deepcopy(gamestate))
+        state.meta.message = []
+        stage = state.meta.stage
+        if stage in (1, 2):
+            state.meta.stage += 1
+        elif stage == 3:
+            self._begin_resolution(options, state)
+        elif stage == 4:
+            first = state.meta.outcome.player
+            if state.meta.outcome.type == 'truce' and state[first].selection.ability_number:
                 for seat in seats:
-                    # in the future maybe wear-off messages for effects whose initial duration was > 1 turn
-                    # can use history for this
-                    delta.ga(seat).restrictions = [update(restriction, {'duration': restriction.duration - 1})
-                                                   for restriction in gamestate.get(seat).restrictions if
-                                                   restriction.duration != 1]
-                return delta
-
-            case 4:
-                outcome = gamestate.meta.outcome
-                active_player = outcome.player
-                inactive_player = opp(active_player)
-                if (selection := gamestate.get(active_player).selection).ability_number:
-                    resolving_player = active_player
+                    hurt(state, seat, 1, check_winner=False)
+                    state[seat].coins += 1
+                    state[seat].selection.ability_number = 0
+                if winner := self.winner(state):
+                    state.meta.message.append(winner)
+            else:
+                for seat in (first, opp(first)):
+                    selection = state[seat].selection
+                    if selection.ability_number:
+                        card = CARD_CLASSES[state[seat].cards[selection.slot].name]
+                        update(state, card.apply(state, history, seat))
+                        break
                 else:
-                    if not (selection := gamestate.get(inactive_player).selection).ability_number:  # done
-                        round = gamestate.meta.round
-                        delta.meta = {'round': round + 1, 'outcome': 'del'}
-                        if options.timed:
-                            delta.meta.stage = 1
-                        else:
-                            delta.meta.stage = 3
-                        for seat in seats:
-                            delta.ga(seat).stages = {'replace': RPSRules.stage_dict}
-                            delta.get(seat).selection = {'replace': {}}
-                            delta.get(seat).ga('shields').this_turn = 0
-
-                        # Update pattern indicators and award rewards
-                        self.update_pattern_indicators(gamestate, delta)
-
-                        add_message(delta, f'round {round} ends')
-                        logging.warn(f"ONE: {delta}")
-                        return delta
-                    else:
-                        resolving_player = inactive_player
-
-                # card updates its own stage so it can skip stuff, etc
-                card = globals()[gamestate.get(resolving_player).cards[selection.slot].name]
-                result = card.apply(gamestate, history, resolving_player)
-                logging.warn(f"{delta}\n--\n{result}")
-                return update(delta, result)
+                    self._end_round(state)
+        else:
+            raise ValueError(f'Invalid stage: {stage}')
+        return Box(gen_patch(gamestate, state))
 
     def winner(self, gamestate):
-        p1_dead = gamestate.p1.hp <= 0
-        p2_dead = gamestate.p2.hp <= 0
-        if p2_dead and p1_dead:
-            if gamestate.p1.hp == gamestate.p2.hp:
-                return 'Tie game!'
-            return seats[gamestate.p2.hp > gamestate.p1.hp]
-        elif p1_dead:
-            return 'p2 wins!'
-        elif p2_dead:
-            return 'p1 wins!'
-        else:
-            return None
+        if winner := gamestate.meta.get('winner'):
+            return 'Tie game!' if winner == 'tie' else f'{winner} wins!'
+        p1_dead, p2_dead = gamestate.p1.hp <= 0, gamestate.p2.hp <= 0
+        if p1_dead and p2_dead:
+            return 'Tie game!'
+        if p1_dead or p2_dead:
+            return f'{"p2" if p1_dead else "p1"} wins!'
+        return None
 
     def get_restrictions(self, gamestate, seat):
-        return [next(filter(lambda c: c.__name__ == rest['name'],
-                            Restriction.__subclasses__()))(rest['arg'], rest['source'], rest['duration'])
-                for rest in gamestate.get(seat).get('restrictions')]
+        return active_restrictions(gamestate, seat)
+
+    def _ability_error(self, state, seat, slot):
+        if slot // 3 + 1 > state.meta.stage:
+            return 'That ability is not unlocked yet'
+        ability_type = state[seat].cards[slot].type
+        for restriction in active_restrictions(state, seat):
+            blocked = (
+                (restriction.name == 'Disabled' and restriction.arg == slot)
+                or (restriction.name == 'Suppressed' and slot >= 6)
+                or (restriction.name == 'StageBlocked' and restriction.arg == state.meta.stage)
+                or (restriction.name == 'TypeBlocked' and restriction.arg == ability_type)
+            )
+            if blocked:
+                return f'Move rejected due to {restriction.source}'
+        return None
+
+    def _premonition_candidates(self, state, seat):
+        other = opp(seat)
+        earlier = {action['slot'] for stage in range(1, state.meta.stage)
+                   for action in state[other].stages[str(stage)] if action['kind'] == 'RPS'}
+        revealed = state[seat].get('premonitions', {}).get(str(state.meta.stage), [])
+        return [slot for slot in range(9) if slot not in earlier and slot not in revealed
+                and self._ability_error(state, other, slot) is None]
+
+    def move_error(self, state, seat, move):
+        if seat not in seats or not isinstance(move, Mapping):
+            return 'Invalid move'
+        if self.winner(state):
+            return 'The game is finished'
+        if state.meta.stage not in (1, 2, 3):
+            return 'Between rounds'
+        if self.get_selections(state, (seat,))[0] is not None:
+            return 'Already selected an RPS ability'
+        stage = state.meta.stage
+        player = state[seat]
+        if any(action['kind'] == 'pass' for action in player.stages[str(stage)]):
+            return 'Already passed this stage'
+        kind = move.get('type')
+        if kind == 'pass':
+            return None
+        if kind not in ('selection', 'modifier', 'coin'):
+            return 'Unknown move type'
+        for restriction in active_restrictions(state, seat):
+            if restriction.name == 'StageBlocked' and restriction.arg == stage:
+                return f'Move rejected due to {restriction.source}'
+        if kind in ('selection', 'modifier'):
+            slot = move.get('selection')
+            if not isinstance(slot, int) or isinstance(slot, bool) or not 0 <= slot < 9:
+                return 'Choose an RPS ability slot from 0 to 8'
+            if kind == 'modifier':
+                if slot // 3 + 1 > stage:
+                    return 'That modifier is not unlocked yet'
+                if not CARD_CLASSES[player.cards[slot].name].modifier:
+                    return 'That ability has no modifier'
+                return None
+            if error := self._ability_error(state, seat, slot):
+                return error
+            if player.get('infiltrate'):
+                ability_type = move.get('as_type')
+                if type(ability_type) is not int or ability_type not in (ROCK, PAPER, SCISSORS):
+                    return 'Choose a type for Infiltrate'
+            elif 'as_type' in move:
+                return 'Use Infiltrate before changing an ability type'
+            return None
+        ability = move.get('ability')
+        if not isinstance(ability, str) or ability not in COIN_ABILITIES:
+            return 'Unknown coin ability'
+        coin = COIN_ABILITIES[ability]
+        if coin['tier'] > stage:
+            return 'That coin ability is not unlocked yet'
+        if ability == 'Suppress' and stage == 3:
+            return 'Suppress is not usable in stage three'
+        if ability == 'Infiltrate' and player.get('infiltrate'):
+            return 'Infiltrate is already active this round'
+        for restriction in active_restrictions(state, seat):
+            if restriction.name == 'CoinLocked' or (restriction.name == 'Suppressed' and coin['tier'] == 3):
+                return f'Move rejected due to {restriction.source}'
+        if player.coins < coin['cost']:
+            return 'Not enough coins'
+        if ability == 'Premonition':
+            if len(player.get('premonitions', {}).get(str(stage), [])) >= 2:
+                return 'Premonition has already been used twice this stage'
+            if not self._premonition_candidates(state, seat):
+                return 'No abilities can be revealed'
+        return None
 
     def move(self, game, seat, move):
-        if not game.status == ACTIVE:
-            return {'error': f'game is {game.status}'}
-        gamestate = Box(game.gamestate)
-        move = Box(move)
-        seat = f"p{seat+1}"
-        if gamestate.meta.stage > 3:
-            return {'error': 'between rounds'}
-        for restriction in self.get_restrictions(gamestate, seat):
-            if restriction.applies(gamestate, seat, move):
-                return {'error': f'Move rejected due to {restriction.source}'}
-        if game.options.get('timed'):
-            return self.pure_move(Box(game.options), gamestate, game.history, seat, move)
-        return self.pure_untimed_move(Box(game.options), gamestate, game.history, seat, move)
+        if game.status != ACTIVE:
+            return {'error': f'Game is not active ({game.status})'}
+        if seat not in (0, 1):
+            return {'error': 'Only seated players can move'}
+        if type(move) is int and move == -1:
+            move = {'type': 'pass'}
+        return self.pure_move(Box(game.options), Box(game.gamestate), game.history, seats[seat], move)
 
     def pure_move(self, options, gamestate, history, seat, move):
-        for stage in range(1,4):
-            if selections := gamestate.get(seat).stages.get(str(stage)):
-                if any(filter(lambda x: x['kind'] == 'RPS', selections)):
-                    return {'error': 'already submitted'}
-
-        delta = empty_delta()
-        match move.type:
-            case 'selection':
-                if move.selection // 3 > gamestate.meta.stage - 1:
-                    return {'error': 'that move is not available yet'}
-                delta.ga(seat).ga('stages')[str(gamestate.meta.stage)] = {'ins': [{'kind': 'RPS', 'slot': move.selection}]}
-            case 'coin':
-                pass
-
-        return delta
+        if error := self.move_error(gamestate, seat, move):
+            return {'error': error}
+        state = Box(deepcopy(gamestate))
+        state.meta.message = []
+        player = state[seat]
+        stage = str(state.meta.stage)
+        kind = move['type']
+        if kind == 'pass':
+            player.stages[stage].append({'kind': 'pass'})
+        elif kind == 'modifier':
+            player.modifier = move['selection']
+        elif kind == 'selection':
+            card = player.cards[move['selection']]
+            previous_type = card.type
+            if player.get('infiltrate'):
+                card.type = move['as_type']
+            player.stages[stage].append({
+                'kind': 'RPS', 'slot': card.slot, 'type': card.type,
+                'previous_type': previous_type, 'modifier': player.get('modifier'),
+            })
+        else:
+            ability = move['ability']
+            cost = COIN_ABILITIES[ability]['cost']
+            player.coins -= cost
+            player.coins_spent = player.get('coins_spent', 0) + cost
+            player.stages[stage].append({'kind': 'coin', 'ability': ability})
+            if ability == 'Suppress':
+                add_restriction(state, opp(seat), 'Suppressed', 3, 1,
+                                f"{seat}'s Suppress @ round {state.meta.round}", immediate=True)
+            elif ability == 'Premonition':
+                revealed = choice(self._premonition_candidates(state, seat))
+                player.setdefault('premonitions', {'2': [], '3': []})[stage].append(revealed)
+            elif ability == 'Infiltrate':
+                player.infiltrate = True
+            state.meta.message.append(f'{seat}: pays ${cost} for {ability}')
+        return Box(gen_patch(gamestate, state))
 
     def pure_untimed_move(self, options, gamestate, history, seat, move):
-        delta = empty_delta()
-        if move.selection == -1:
-            return update(delta, {seat: {'stages': {'pass': 1}}})
-        stage = move.selection // 3 + 1
-        delta.ga(seat).stages = {n: [{'kind': 'RPS', 'slot': move.selection}] if n == stage else [] for n in range(1,4)}
-        return delta
+        return self.pure_move(options, gamestate, history, seat, move)
 
     def next_tick(self, game):
-        stage = game.gamestate['meta']['stage']
-        if stage <= 3:
-            return game.options['timer']
-        elif stage == 4 and not game.gamestate['meta']['message']:
-            return 0
-        else:
-            return 2
+        if game.gamestate['meta']['stage'] <= 3:
+            return game.options.get('timer', 10) if game.options.get('timed', True) else 0
+        return 2 if game.gamestate['meta']['message'] else 0
 
     def gameboard_context(self, name, seat, game, gamestate, now):
-        response = Box()
-        gameboard_context = game.response(self.response(game, seat), now)
-        gameboard_context.name = name
+        visible = self.response(game, seat)
+        context = game.response(visible, now)
+        context.name = name
+        context.seat = seats[seat] if seat in (0, 1) else 'spectating'
+        context.active = game.status == ACTIVE
+        context.finished = game.status == FINISHED
+        context.winner = self.winner(visible)
+        context.timed = game.options.get('timed', True)
+        stage = visible.meta.stage
+        own_seat = seats[seat] if seat in (0, 1) else None
+        selected = [selection.card.slot if selection else None for selection in self.get_selections(visible)]
+        cards, modifiers = [], []
+        for card in visible.p1.cards[:9]:
+            other = visible.p2.cards[card.slot]
+            ability = CARD_CLASSES[card.name]
+            mine = visible[own_seat].cards[card.slot] if own_seat else card
+            color_index = int(card.slot == selected[0]) + 2 * int(card.slot == selected[1])
+            color = [WHITE, BLUE, RED, YELLOW][color_index]
+            if stage < 4 and not color_index and card.slot // 3 + 1 <= stage:
+                color = GREEN
+            move = {'type': 'selection', 'selection': card.slot}
+            if own_seat and visible[own_seat].get('infiltrate'):
+                move['as_type'] = mine.type
+            error = self.move_error(visible, own_seat, move) if own_seat else 'Spectating'
+            cards.append(Box(
+                slot=card.slot,
+                name=f"{card.level:g}{'X' if card.cracked else ''} {card.name} {other.level:g}{'X' if other.cracked else ''}",
+                type_label=f'{TYPES[card.type]} / {TYPES[other.type]}',
+                color=color, disabled=not context.active or error is not None,
+                reason=error or ability.text,
+            ))
+            if ability.modifier:
+                modifier_error = (self.move_error(visible, own_seat, {'type': 'modifier', 'selection': card.slot})
+                                  if own_seat else 'Spectating')
+                is_selected = own_seat and visible[own_seat].get('modifier') == card.slot
+                modifiers.append(Box(
+                    slot=card.slot, name=card.name, text=ability.modifier,
+                    cost=ability.modifier_cost(),
+                    color=(BLUE if own_seat == 'p1' else RED) if is_selected
+                    else (GREEN if card.slot // 3 + 1 <= stage else WHITE),
+                    disabled=not context.active or modifier_error is not None,
+                ))
+        context.cards = cards
+        context.modifiers = modifiers
+        context.coins = []
+        for ability, data in COIN_ABILITIES.items():
+            error = (self.move_error(visible, own_seat, {'type': 'coin', 'ability': ability})
+                     if own_seat else 'Spectating')
+            context.coins.append(Box(name=ability, **data, disabled=not context.active or error is not None,
+                                     color=GREEN if data['tier'] <= stage else WHITE, reason=error or data['text']))
+        context.pass_disabled = (not own_seat or not context.active
+                                 or self.move_error(visible, own_seat, {'type': 'pass'}) is not None)
+        passed = [any(action['kind'] == 'pass' for action in visible[player].stages.get(str(min(stage, 3)), []))
+                  for player in seats]
+        context.pass_color = [WHITE, BLUE, RED, YELLOW][int(passed[0]) + 2 * int(passed[1])]
+        context.infiltrate = bool(own_seat and visible[own_seat].get('infiltrate') and stage < 4)
+        context.premonitions = []
+        if own_seat:
+            for reveal_stage, slots in visible[own_seat].get('premonitions', {}).items():
+                for slot in slots:
+                    context.premonitions.append(f"Stage {reveal_stage}: {visible[opp(own_seat)].cards[slot].name}")
+        for player in seats:
+            context[f'{player}_percent'] = health_percent(visible[player])
+            context[f'{player}_badges'] = [f'{badge[0]}({badge[1]})' for badge in visible[player].badges]
+            context[f'{player}_restrictions'] = [
+                f"{rest.name}({rest.arg}), through round {rest.get('until', visible.meta.round)}: {rest.source}"
+                for rest in visible[player].restrictions
+            ]
+        pattern = visible.pattern
+        context.pattern = {
+            'sequence': [TYPES[value] for value in pattern.sequence],
+            'reward_type': pattern.reward_type, 'reward_amount': pattern.reward_amount,
+            'p1_indicator': pattern.indicators.get('p1'),
+            'p2_indicator': pattern.indicators.get('p2'),
+        }
+        return context
 
-        gamestate = Box(gameboard_context.gamestate)
-        stage = gamestate.meta.stage
-        gameboard_context.seat = ('p1', 'p2', 'spectating')[seat]
-        cards = []
-        highest_slot = stage * 3 if stage < 4 else -1
-        for card_dict in gamestate.p1.cards[:-2]:
-            card = Box(card_dict)
-            other = Box(gamestate.p2.cards[card.slot])
-            card.name = f"{card.level}{'X' if card.cracked else ''} {card.name} {other.level}{'X' if other.cracked else ''}"
-            if stage < 4 and game.options.get('timed'):
-                card.color = GREEN if card.slot < highest_slot else '#FFF'
-            else:
-                selections = self.get_selections(gamestate)
-                p1_slot = selections[0].card.slot if selections[0] else None
-                p2_slot = selections[1].card.slot if selections[1] else None
-                if card.slot == p1_slot == p2_slot:
-                    card.color = YELLOW
-                elif card.slot == p1_slot:
-                    card.color = BLUE
-                elif card.slot == p2_slot:
-                    card.color = RED
-                else:
-                    card.color = WHITE
-            cards.append(card)
-
-        pass_color = ('pass' in gamestate.p1.stages) + ('pass' in gamestate.p2.stages) * 2
-        gameboard_context.pass_color = [WHITE, BLUE, RED, YELLOW][pass_color]
-        gameboard_context.cards = cards
-        gameboard_context.p1_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p1.badges]
-        gameboard_context.p2_badges = [f"{badge[0]}({badge[1]})" for badge in gamestate.p2.badges]
-        gameboard_context.selections = [] if stage < 4 else [gamestate.p1.selection.slot, gamestate.p2.selection.slot]
-        gameboard_context.timed = game.options.get('timed')
-        gameboard_context.active = game.status == ACTIVE
-
-        # Add pattern information
-        if 'pattern' in gamestate:
-            pattern = gamestate.pattern
-            gameboard_context.pattern = {
-                'sequence': [TYPES[t] for t in pattern['sequence']],
-                'reward_type': pattern['reward_type'],
-                'reward_amount': pattern['reward_amount'],
-                'p1_indicator': pattern['indicators'].get('p1'),
-                'p2_indicator': pattern['indicators'].get('p2')
-            }
-
-        return gameboard_context
-    
-    # could be a classmethod
     def gameboard_data(self, game):
-        return {'cards': [{'name': c.name, 'slot': c.slot, 'text': c.text} for c in self.deck_text(game)], 'fps': game.options.get('fps', self.DEFAULT_OPTIONS['fps'])}
+        return {'cards': self.deck_text(game), 'fps': game.options.get('fps', 8)}

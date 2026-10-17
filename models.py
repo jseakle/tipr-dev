@@ -1,5 +1,7 @@
 from datetime import timedelta
-from tipr.utils import *
+from copy import deepcopy
+from math import ceil
+from .utils import ACTIVE, CREATED, Box, tznow, update
 from django.db import models
 
 
@@ -25,14 +27,14 @@ class Game(models.Model):
         if not timestamp:
             timestamp = tznow()
         self.history[-1].append({'type': type,
-                                 'info': info,
+                                 'info': deepcopy(info),
                                  'timestamp': timestamp.timestamp()})
         self.save()
 
     def keyframe(self):
         timestamp = tznow()
         self.history.append([{'type': 'keyframe',
-                              'info': self.gamestate,
+                              'info': deepcopy(self.gamestate),
                               'timestamp': timestamp.timestamp()}])
         self.save()
 
@@ -48,15 +50,17 @@ class Game(models.Model):
         # 
         except IndexError:
             return None
-        frame = interval[0]
+        frame = deepcopy(interval[0])
         if not last_only:
-            ret = [frame]
+            ret = [deepcopy(frame)]
         if count == 0:
             count = len(interval)
         for i in range(1, count):
+            if interval[i]['type'] == 'rewind':
+                continue
             frame = update(frame, interval[i])
             if not last_only:
-                ret.append(frame)
+                ret.append(deepcopy(frame))
         if not last_only:
             return ret
         return Box(frame)
@@ -64,18 +68,16 @@ class Game(models.Model):
     def response(self, prepared_gamestate, now, full=False):
         if not self.last_tick:
             self.last_tick = now
-            self.save()
+            self.save(update_fields=['last_tick'])
         if self.status != ACTIVE:
             duration = 0
             remaining = 0
-        elif not self.next_tick:
+        elif self.next_tick is None or self.next_tick <= 0:
             duration = 0
             remaining = 0
         else:
             duration = self.next_tick
-            remaining = duration - ((now - self.last_tick).seconds) #round(duration - ((now - self.last_tick).seconds + (now - self.last_tick).microseconds / 1000000), 2)
-            if remaining <= 0:
-                remaining = 1
+            remaining = max(0, ceil(duration - (now - self.last_tick).total_seconds()))
         return Box({
             'timer_duration': duration,
             'time_remaining': remaining,
@@ -87,7 +89,7 @@ class Game(models.Model):
 
     def rewind(self, keyframes, reason):
         blessed_history = list(filter(lambda interval: 'rewound' not in interval[0], self.history))
-        self.gamestate = blessed_history[-(keyframes+1)][0]['info']
+        self.gamestate = deepcopy(blessed_history[-(keyframes+1)][0]['info'])
         for i in range(1, keyframes+1):
             self.history[-i][0]['rewound'] = True
         if self.status == ACTIVE:
@@ -100,4 +102,5 @@ class Game(models.Model):
 
     # this takes a timestamp instead of checking the time because we might be in a replay
     def has_ticked(self, timestamp):
-        return timestamp - self.last_tick > timedelta(seconds=self.next_tick)
+        return (self.last_tick is not None and self.next_tick is not None
+                and timestamp - self.last_tick >= timedelta(seconds=self.next_tick))

@@ -19,6 +19,15 @@
         }
         $("#"+card+"_text").show()
     }
+
+    function chooseAbility(slot) {
+        const move = {type: 'selection', selection: slot};
+        const typeChoice = document.getElementById('infiltrate-type');
+        if (typeChoice) {
+            move.as_type = Number(typeChoice.value);
+        }
+        submit(JSON.stringify(move));
+    }
     </script>
 {% endblock extra_js %}
 
@@ -28,7 +37,7 @@
 <div id="movestat"><br></div>
 <div id="gameboard"></div>
 {% for card in cards %}
-<div style="display: none" id="{{ card.slot }}_text">{{ card.name }}: {{ card.text }}</div>
+<div style="display: none" id="{{ card.slot }}_text">{{ card.name }}: {{ card.text }}{% if card.modifier %} Modifier: {{ card.modifier }}{% endif %}</div>
 {% endfor %}
 </div>
 <div id="chat_container"></div>

@@ -15,8 +15,14 @@
         .fail(function(response) {console.log(response)});
     }
     function sit(seat, type) {
-        $.post('sit/', {'seat': seat, 'type': type}, function(data) {
-            $('#sitstat').html('sat in ' + seat)
+        const options = type === 'rps' ? {
+            timer: Number(document.getElementById('rps-timer').value),
+            starting_hp: Number(document.getElementById('rps-starting-hp').value),
+            deck: document.getElementById('rps-deck').value,
+            timed: document.getElementById('rps-timed').checked
+        } : {};
+        $.post('sit/', {'seat': seat, 'type': type, 'options': JSON.stringify(options)}, function(data) {
+            $('#sitstat').text(data.error || 'sat in ' + seat)
         }).fail(function(response) {
             $('#sitstat').html(response)
         });
@@ -42,8 +48,17 @@
 
 {% block content %}
 what name you want?
-<input name="name"></input>
+<input name="name">
 <button name="ok" onclick="register()">ok</button><br>
+<label for="rps-timed">RPS timer</label><input id="rps-timed" type="checkbox" checked>
+<input id="rps-timer" type="number" min="1" step="1" value="10" aria-label="Seconds per stage">
+<label for="rps-starting-hp">Starting health</label><input id="rps-starting-hp" type="number" min="1" step="1" value="250"><br>
+<label for="rps-deck">Deck</label>
+<select id="rps-deck">
+    <option value="basic">All basic</option>
+    <option value="advanced">All advanced</option>
+    <option value="random" selected>Random</option>
+</select><br>
 <button name="rps" onclick="sit(0, 'rps')">rps</button>
 <button name="liar" onclick="sit(0, 'liar')">liar</button>
 <div id="sitstat"></div><br>

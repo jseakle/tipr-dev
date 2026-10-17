@@ -1,20 +1,19 @@
 import json
 import logging
-from datetime import datetime, timedelta, timezone
-from termcolor import colored as c
+from copy import deepcopy
 
 from django.core.cache import cache
 from django.db import transaction
 
-from tipr.utils import *
+from .utils import ACTIVE, FINISHED, PAUSED, Box, gen_patch, tznow, update
 from django.http.response import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect
 from django.template.loader import render_to_string
 from django.views import View
 
-from tipr.models import Game
-from tipr.rps import RPSRules
-from tipr.liar import LiarRules
+from .models import Game
+from .rps import RPSRules
+from .liar import LiarRules
 
 rules_classes = {
     'rps': RPSRules(),
@@ -28,13 +27,12 @@ def pause_others(game):
         return
     if not all(game.people[1]):
         return
-    game.status = ACTIVE
-    game.save()
-    for g in (Game.objects.filter(status=ACTIVE) | \
-             Game.objects.filter(people__0__contains=game.people[0][0]) | \
-             Game.objects.filter(people__0__contains=game.people[0][1])).exclude(id=game.pk):
-        g.status = PAUSED
-        g.save()
+    if game.status != ACTIVE:
+        game.last_tick = tznow()
+        game.next_tick = rules_classes[game.type].next_tick(game)
+        game.status = ACTIVE
+        game.save(update_fields=['status', 'last_tick', 'next_tick'])
+    Game.objects.filter(status=ACTIVE).exclude(pk=game.pk).update(status=PAUSED)
 
 class Register(View):
     def post(self, request):
@@ -50,30 +48,48 @@ class Register(View):
         return HttpResponse()
 
 class Sit(View):
+    @transaction.atomic
     def post(self, request):
         name = request.session.get('name')
         if not name:
             return JsonResponse({'error': 'please register a name first'})
-        seat = int(request.POST.get('seat'))
+        try:
+            seat = int(request.POST.get('seat'))
+        except (TypeError, ValueError):
+            return JsonResponse({'error': 'Choose a valid seat'})
+        if seat not in (0, 1):
+            return JsonResponse({'error': 'Choose a valid seat'})
         gameid = request.POST.get('game')
         if not gameid:
             game_type = request.POST.get('type')
+            if game_type not in rules_classes:
+                return JsonResponse({'error': 'Unknown game type'})
             rules = rules_classes[game_type]
-            options = update(rules.DEFAULT_OPTIONS.copy(), request.POST.get('options'))
-            options['deck'] = RPSRules.deck()
+            try:
+                supplied = json.loads(request.POST.get('options') or '{}')
+                if not isinstance(supplied, dict):
+                    raise ValueError('Options must be an object')
+                options = (rules.prepare_options(supplied) if game_type == 'rps'
+                           else {**deepcopy(rules.DEFAULT_OPTIONS), **supplied})
+            except (TypeError, ValueError) as error:
+                return JsonResponse({'error': f'Invalid game options: {error}'})
             starting_seats = [['']*options['player_count'], [False]*options['player_count']]
             starting_seats[0][seat] = name
             starting_seats[1][seat] = True
             game = Game(type=game_type, people=starting_seats, options=options, gamestate=rules.start_state(options))
             game.keyframe()
         else:
-            game = Game.objects.get(pk=gameid)
+            try:
+                game = Game.objects.select_for_update().filter(pk=int(gameid)).first()
+            except (TypeError, ValueError):
+                return JsonResponse({'error': 'This game does not exist'})
+            if game is None:
+                return JsonResponse({'error': 'This game does not exist'})
             if game.people[0][seat]:
                 return JsonResponse({'error': 'seat already taken'})
             game.people[0][seat] = name
             game.people[1][seat] = True
             if all(game.people[1]):
-                game.status = ACTIVE
                 pause_others(game)
         game.save()
         request.session['gameid'] = game.pk
@@ -85,6 +101,32 @@ def get_seat(game, name):
         seat = game.people[0].index(name)  # 0 is p1
     return seat
 
+
+def apply_game_delta(game, rules, delta, now, event_type):
+    before = Box(deepcopy(game.gamestate))
+    state = Box(deepcopy(before))
+    update(state, delta)
+    messages = list(state.meta.message)
+    game.gamestate = state.to_dict()
+    if event_type == 'time':
+        game.last_tick = now
+        game.next_tick = rules.next_tick(game)
+    state.meta.message = []
+    if winner := rules.winner(state):
+        game.status = FINISHED
+        game.next_tick = 0
+        if winner not in messages:
+            messages.append(winner)
+    game.gamestate = state.to_dict()
+    for message in messages:
+        game.chat('system', message, now)
+    if state.meta[rules.keyframe_name] != before.meta[rules.keyframe_name]:
+        game.keyframe()
+    else:
+        game.event(event_type, gen_patch(before, state), now)
+    return state
+
+
 class Update(object):
 
     @staticmethod
@@ -93,16 +135,12 @@ class Update(object):
         with transaction.atomic():
             now = tznow()
 
-            if id:
-                game = Game.objects.filter(pk=id)
-            else:
-                game = None
-            if not game:
+            try:
+                game = Game.objects.select_for_update().filter(pk=int(id)).first()
+            except (TypeError, ValueError):
                 return {'error': 'This game does not exist'}
-            game = game.get()
-            if game.status == CREATED:
-                pass
-                #return {'error': 'waiting for all players to be ready'}
+            if game is None:
+                return {'error': 'This game does not exist'}
             gamestate = Box(game.gamestate)
 
             rules = rules_classes[game.type]
@@ -120,61 +158,35 @@ class Update(object):
                 game.last_tick = now
                 game.save()
 
-            ticked = False
-            if rules.should_update(game, gamestate, now):
-                logging.warning(2)
-                ticked = True
-                keyframe_name = rules.keyframe_name
-                prev = gamestate.meta[keyframe_name]
-                try:
-                    delta = rules.do_update(game)
-                    logging.warn(c(f'TICK: {delta}', "red"))
-                    update(gamestate, delta)
-                    logging.warn(f'TICK COMPLETE: {gamestate}')
-
-                    for message in gamestate.meta.message:
-                        game.chat('system', message, now)
-                    gamestate.meta.message = []
-                    game.gamestate = dict(gamestate)
-
-                    if gamestate.meta[keyframe_name] != prev:
-                        if winner := rules.winner(gamestate):
-                            game.chat('system', winner, now)
-                            game.status = FINISHED
-                        game.keyframe()
-                    else:
-                        game.event('time', delta, now)
-                except Exception as e:
-                    logging.exception(f'rewinding')
-                    s()
-                    message = f'error doing timed update: {e}\nresetting to {keyframe_name} {prev}'
-                    game.chat('system', message, now)
-                    game.rewind(1, message)
-                    return rules.render_gameboard(name, load, seat, game, gamestate, now)
-
-            gameboard = rules.render_gameboard(name, load, seat, game, gamestate, now)
-            if ticked:
-                game.last_tick = now
-                game.next_tick = rules.next_tick(game)
-                game.save()
-                game.refresh_from_db()
-            return gameboard
+            if rules.winner(gamestate):
+                gamestate = apply_game_delta(game, rules, {}, now, 'time')
+            elif rules.should_update(game, gamestate, now):
+                gamestate = apply_game_delta(game, rules, rules.do_update(game), now, 'time')
+            return rules.render_gameboard(name, load, seat, game, gamestate, now)
 
 class Submit(View):
+    @transaction.atomic
     def post(self, request):
         now = tznow()
         name = request.session.get('name')
         try:
-            game = int(request.POST.get('game'))
-            game = Game.objects.filter(pk=game).get()
-        except:
-            return JsonResponse({'error': f'game {game.people}  does not exist'})
-        move = json.loads(request.POST.get('move'))
+            gameid = int(request.POST.get('game'))
+        except (TypeError, ValueError):
+            return JsonResponse({'error': 'This game does not exist'})
+        game = Game.objects.select_for_update().filter(pk=gameid).first()
+        if game is None:
+            return JsonResponse({'error': 'This game does not exist'})
+        try:
+            move = json.loads(request.POST.get('move'))
+        except (TypeError, ValueError):
+            return JsonResponse({'error': 'Move must be valid JSON'})
 
         if isinstance(move, str) and move.startswith('chat: '):
 
             move = move[6:]
             if move == 'rewind':
+                if sum('rewound' not in interval[0] for interval in game.history) < 2:
+                    return JsonResponse({'error': 'There is no previous round to rewind to'})
                 msg = f'{name} clicked rewind'
                 game.rewind(1, msg)
                 return JsonResponse({})
@@ -186,16 +198,11 @@ class Submit(View):
         seat = get_seat(game, name)
         if seat == -1:
             return JsonResponse({'error': f'{name} tried to move but is not a player'})
-        # {"type": "selection", "selection": <slot>}
-        logging.warn(c(f'MOVE: {seat} {request.POST.get("move")}', "red"))
         delta = rules.move(game, seat, move)
-        logging.warning(f"DELTA {delta} from {move}")
         if 'error' in delta:
-            logging.warn(delta)
+            logging.warning('Move rejected: %s', delta['error'])
             return JsonResponse(delta)
-        game.event('move', move, now)
-        update(game.gamestate, delta)
-        game.save()
+        apply_game_delta(game, rules, delta, now, 'move')
         return JsonResponse(game.response(rules.response(game, seat), now))
 
 

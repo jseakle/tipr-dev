@@ -1,9 +1,9 @@
 
 {% block gameboard %}
-{% if seat != 'p1' and not active %}
+{% if seat != 'p1' and not active and not finished %}
 <button id="sit" onclick="sit(1)">Join</button>
 {% endif %}
 Hi {{ name }}, you are {{ seat }}<br>
-{% if not active %}Waiting for opponent{% endif %}
+{% if finished %}{{ winner }}{% elif not active %}Waiting for opponent{% endif %}
 <div id="timer"></div>
 {% endblock gameboard %}

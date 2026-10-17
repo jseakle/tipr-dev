@@ -5,6 +5,8 @@ import pdb
 from datetime import datetime, timezone
 from itertools import chain
 import traceback
+from copy import deepcopy
+from numbers import Real
 
 from box import Box as oBox
 from pdb import set_trace as s
@@ -56,8 +58,10 @@ mod_table = {
 }
 def combine_numeric_modifiers(mods):
     final_mod = 0
-    for mod in mods:
-        final_mod = mod_table[mod[0]](final_mod, mod[1])
+    for operation, amount in mods:
+        if operation not in mod_table or not isinstance(amount, Real) or isinstance(amount, bool):
+            raise ValueError(f"Invalid numeric modifier: {(operation, amount)!r}")
+        final_mod = mod_table[operation](final_mod, amount)
     return final_mod
 
 # handling numbers:
@@ -75,118 +79,145 @@ def combine_numeric_modifiers(mods):
 #   number, number -> new number
 #   number, tuple -> tupleops(number)
 def update(d, u):
-    logging.warning(f'{d}\n{u}')
-    if not u:
+    """Apply a delta in place, without retaining references to it.
+
+    Numeric operations describe a change from zero, added to the existing
+    number. JSON arrays of operations are accepted when replaying saved deltas.
+    """
+    if not isinstance(d, collections.abc.MutableMapping):
+        raise TypeError("The update target must be a mutable mapping")
+    if u is None:
         return d
+    if not isinstance(u, collections.abc.Mapping):
+        raise TypeError("An update must be a mapping")
     for k, v in u.items():
-        if v == 'del':
+        if isinstance(v, str) and v == 'del':
             del d[k]
-        elif v is None:
-            d[k] = None
-        elif k == 'dins':  # 'delta insert'
-            if 'ins' in d:
-                d['ins'].append(v)
-            else:
-                d['ins'] = [v]
-        elif type(v) is tuple:
-            if k not in d:
-                d[k] = v
-            else:
-                if type(d[k]) is tuple:
-                    d[k] = tuple(list(d[k]) + list(v))
-                elif type(d[k]) is int:
-                    base = d[k] if k in d else 0
-                    d[k] = base + combine_numeric_modifiers(v)
-                else:
-                    raise RuntimeError(f"Don't put tuples ({v}) on {d[k]}")
-        elif k in d and type(d[k]) is tuple:
-            raise RuntimeError(f"Don't put {v} on tuples ({d[k]})")
-        elif k in d and isinstance(d[k], list):
-            if isinstance(v, list):
-                d[k] = v
-                continue
-            if 'deletes' in v:
-                d[k] = filter(lambda i, x: i not in v['deletes'], enumerate(d[k]))
-            if 'del_values' in v:
-                for del_val in v['del_values']:
-                    d[k].remove(del_val)
-            if 'ins' in v:
-                d[k].extend(v['ins'])
-            if 'set' in v:
-                d[k][v['set'][0]] = v['set'][1]
-            if 'rep' in v:
-                d[k] = v['rep']
-            if 'upd' in v:
-                logging.warn(f'{d} v: {v}')
-                for idx, delta in v['upd'].items():
-                    d[k][idx] = update(d[k][idx], delta)
-        elif isinstance(v, collections.abc.Mapping):
-            if 'replace' in v:
-                d[k] = v['replace']
-            else:
-                d[k] = update(d.get(k, {}), v)
+        elif k == 'dins':
+            d.setdefault('ins', []).append(deepcopy(v))
+        elif k == 'ins' and k in d and isinstance(d[k], list) and isinstance(v, (list, tuple)):
+            d[k].extend(deepcopy(v))
         else:
-            try:
-                d[k] = v
-            except Exception as e:
-                logging.warning(f"Update error: {e}, {d}, {k}, {v}")
-                #s()
+            d[k] = _updated_value(d.get(k), v, missing=k not in d)
     return d
+
+
+def _numeric_operations(value):
+    return (isinstance(value, (tuple, list)) and bool(value)
+            and all(isinstance(op, (tuple, list)) and len(op) == 2
+                    and isinstance(op[0], str) and op[0] in mod_table
+                    for op in value))
+
+
+def _updated_value(current, patch, missing=False):
+    if isinstance(patch, collections.abc.Mapping) and 'replace' in patch:
+        if len(patch) != 1:
+            raise ValueError("A replacement cannot contain other patch operations")
+        return deepcopy(patch['replace'])
+    if patch is None:
+        return None
+    if isinstance(patch, tuple) and isinstance(current, Real) and not _numeric_operations(patch):
+        raise ValueError(f"Invalid numeric operations: {patch!r}")
+    if _numeric_operations(patch) and (isinstance(patch, tuple)
+                                      or isinstance(current, Real)
+                                      or isinstance(current, tuple)):
+        operations = tuple(tuple(op) for op in patch)
+        combine_numeric_modifiers(operations)
+        if missing:
+            return operations
+        if isinstance(current, (tuple, list)) and _numeric_operations(current):
+            return tuple(tuple(op) for op in current) + operations
+        if isinstance(current, Real) and not isinstance(current, bool):
+            return current + combine_numeric_modifiers(operations)
+        raise TypeError(f"Cannot apply numeric operations to {current!r}")
+    if isinstance(current, tuple) and _numeric_operations(current):
+        raise TypeError(f"Cannot replace numeric operations with {patch!r}")
+    if isinstance(patch, collections.abc.Mapping):
+        if isinstance(current, list):
+            return _updated_list(current, patch)
+        if missing:
+            current = {}
+        if not isinstance(current, collections.abc.MutableMapping):
+            raise TypeError(f"Cannot apply a mapping patch to {current!r}; use replace")
+        return update(current, patch)
+    return deepcopy(patch)
+
+
+def _list_index(value, length):
+    if isinstance(value, str) and value.isdecimal():
+        value = int(value)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise TypeError(f"Invalid list index: {value!r}")
+    if not 0 <= value < length:
+        raise IndexError(f"List index out of range: {value}")
+    return value
+
+
+def _updated_list(current, patch):
+    operations = {'deletes', 'del_values', 'ins', 'dins', 'set', 'rep', 'upd'}
+    if unknown := set(patch) - operations:
+        raise ValueError(f"Unknown list patch operations: {sorted(unknown)}")
+    result = deepcopy(current)
+    deleted = {_list_index(index, len(result)) for index in patch.get('deletes', [])}
+    result = [value for index, value in enumerate(result) if index not in deleted]
+    for value in patch.get('del_values', []):
+        result.remove(value)
+    if 'ins' in patch:
+        if not isinstance(patch['ins'], (list, tuple)):
+            raise TypeError("List inserts must be a sequence")
+        result.extend(deepcopy(patch['ins']))
+    if 'dins' in patch:
+        result.append(deepcopy(patch['dins']))
+    if 'set' in patch:
+        index, value = patch['set']
+        result[_list_index(index, len(result))] = deepcopy(value)
+    if 'rep' in patch:
+        if not isinstance(patch['rep'], list):
+            raise TypeError("A list replacement must be a list")
+        result = deepcopy(patch['rep'])
+    for index, delta in patch.get('upd', {}).items():
+        index = _list_index(index, len(result))
+        result[index] = _updated_value(result[index], delta)
+    return result
+
 
 class NoChange(object):
     pass
 
-# WARNING: THIS IS CURRENTLY FOR LIAR ONLY
 def gen_patch(state1, state2, rec=False):
-    logging.warning(f"gen {state1} {state2}")
-    # this can only happen on a recursive call, so the type is ok
-
-    if rec:
-        if state1 == state2:
-            return NoChange
-        elif type(state1) != type(state2) and not (isinstance(state1, oBox) and isinstance(state2, oBox)):
-            if isinstance(state2, dict):
-                logging.warning("REP: " + str(type(state1)) + " " + str(type(state2)) + " " + repr(state1) + "\nTO: " + repr(state2))
-                return {'replace': state2}
-            return state2
-    
-    ret = {}
-
-    if type(state1) in [str, int]:
-        logging.warning("BAR" + repr(ret))
-        return state2
-    
-    if isinstance(state1, list):
-        if not state1:
-            ret['ins'] = state2
-        elif len(state1) == len(state2):
-            ret = {'upd': {x: gen_patch(state1[x], state2[x], True) for x in range(len(state1)) if state1[x] != state2[x]}}
-        elif len(state2) < len(state1):
-            ret['rep'] = state2
-        elif all([state1[x] == state2[x] for x in range(len(state1))]):
-            ret['ins'] = state2[len(state1):]
-        else:
-            ret['rep'] = state2
-        logging.warning("OO" + repr(ret))            
-        return ret
-    
-    if not state1:
-        logging.warning(f"N? {state1} {state2}")
-        return state2
-
-    for key in state1.keys() | state2.keys():
-        if key not in state1:
-            ret[key] = state2[key]
-            continue
-        if key not in state2:
-            ret[key] = 'del'
-            continue
-
-        if (result := gen_patch(state1[key], state2[key], True)) != NoChange:
-            ret[key] = result
-
-
-    return ret
+    """Produce a JSON-replayable patch for nested game state values."""
+    if isinstance(state1, collections.abc.Mapping) and isinstance(state2, collections.abc.Mapping):
+        if rec and ('replace' in state1 or 'replace' in state2):
+            return {'replace': deepcopy(state2)}
+        result = {}
+        for key in dict.fromkeys(chain(state1, state2)):
+            if key not in state2:
+                result[key] = 'del'
+            elif key not in state1:
+                result[key] = {'replace': deepcopy(state2[key])}
+            else:
+                change = gen_patch(state1[key], state2[key], True)
+                if change is not NoChange:
+                    result[key] = change
+        return result if result or not rec else NoChange
+    if isinstance(state1, list) and isinstance(state2, list):
+        if len(state1) == len(state2):
+            changes = {}
+            for index, (before, after) in enumerate(zip(state1, state2)):
+                change = gen_patch(before, after, True)
+                if change is not NoChange:
+                    changes[index] = change
+            return {'upd': changes} if changes else (NoChange if rec else {})
+        if len(state2) > len(state1) and all(
+                gen_patch(before, after, True) is NoChange
+                for before, after in zip(state1, state2)):
+            return {'ins': deepcopy(state2[len(state1):])}
+        return {'rep': deepcopy(state2)}
+    if type(state1) is type(state2) and state1 == state2:
+        return NoChange if rec else {}
+    if isinstance(state2, (collections.abc.Mapping, list)) or state2 == 'del':
+        return {'replace': deepcopy(state2)}
+    return deepcopy(state2)
     
 def add_message(delta, message):
     update(delta, {'meta': {'message': {'ins': [message]}}})
