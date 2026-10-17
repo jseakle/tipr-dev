@@ -44,3 +44,22 @@ Napkin now: "2L health. T1: +4X damage, where X is opposing level. T2: gain a sh
 
 ButterKnife was: "10 + 2L damage. disable opposing ability for 1 turn. T1: +10 + 2L damage. T2: disable opposing ability for an additional turn."
 ButterKnife now: "10 + 2L damage. disable opposing ability for 1 turn. T1: disable another random opposing ability for one turn. T2: +10 + 2L damage."
+
+2026-10-17
+
+1.
+
+Pattern rewards were: coins (+5, 7, 10, 12, or 15), health (+5, 10, 15, or 20), or +1 level to a random ability chosen when the reward is earned.
+Pattern rewards now: coins, health, levels, or shields with equal probability. Coins: +10-20. Health: +20-40. Levels: +1-2 to a specific ability, shown with the pattern. Shields: +1-2.
+
+Starting coins were: $0
+Starting coins now: $2
+
+Starting ability levels were: 1
+Starting ability levels now: equal to the ability's tier (tier 1: level 1, tier 2: level 2, tier 3: level 3)
+
+Starting health was: 250 (max 333)
+Starting health now: 150 (max 200)
+
+Basic-only decks were: played with the pattern, modifiers, and coin abilities.
+Basic-only decks now: have no pattern, modifiers, or coin abilities.

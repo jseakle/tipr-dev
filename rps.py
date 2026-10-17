@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from math import isfinite
 from numbers import Real
-from random import choice, shuffle
+from random import choice, randint, shuffle
 
 from .rps_cards import (
     CARD_CLASSES, COIN_ABILITIES, DECKS, active_restrictions,
@@ -21,7 +21,7 @@ class RPSRules(Rules):
     DEFAULT_OPTIONS = {
         'timed': True,
         'timer': 10,
-        'starting_hp': 250,
+        'starting_hp': 150,
         'player_count': 2,
         'fps': 8,
     }
@@ -68,7 +68,7 @@ class RPSRules(Rules):
         starting_hp = options.get('starting_hp', self.DEFAULT_OPTIONS['starting_hp'])
         max_hp = starting_hp / .75
         return {
-            'max_hp': max_hp, 'hp': starting_hp, 'coins': 0,
+            'max_hp': max_hp, 'hp': starting_hp, 'coins': 2,
             'selection': {}, 'modifier': None, 'infiltrate': False,
             'premonitions': {'2': [], '3': []},
             'coins_spent': 0, 'damage_taken': 0, 'last_damage': 0,
@@ -77,7 +77,7 @@ class RPSRules(Rules):
             'shields': {'n': 0, 'this_turn': 0},
             'restrictions': [], 'stages': self.fresh_stages(),
             'cards': [
-                {'name': name, 'level': 1, 'cracked': False,
+                {'name': name, 'level': slot // 3 + 1 if slot < 9 else 1, 'cracked': False,
                  'type': CARD_CLASSES[name].type, 'slot': slot}
                 for slot, name in enumerate(options['deck'])
             ],
@@ -85,13 +85,22 @@ class RPSRules(Rules):
 
     def start_state(self, options):
         options = self.prepare_options(options)
-        pattern = self.generate_pattern_reward()
-        return {
+        p1, p2 = self.player_state(options), self.player_state(options)
+        state = {
             'meta': {'round': 1, 'stage': 1, 'outcome': {'player': None, 'type': None},
-                     'message': ['Game Start', self.pattern_message(pattern)]},
-            'p1': self.player_state(options), 'p2': self.player_state(options),
-            'pattern': pattern,
+                     'message': ['Game Start']},
+            'p1': p1, 'p2': p2, 'pattern': None,
         }
+        if not self.basic_only(state):
+            state['pattern'] = self.generate_pattern_reward()
+            state['meta']['message'].append(self.pattern_message(state['pattern'], p1['cards']))
+        return state
+
+    @staticmethod
+    def basic_only(state):
+        """Basic-only decks play without the pattern, modifiers, or coin abilities."""
+        basic = {card.__name__ for card in DECKS['basic']}
+        return all(card['name'] in basic for card in state['p1']['cards'][:9])
 
     @staticmethod
     def deck(mode: str = 'random'):
@@ -105,20 +114,32 @@ class RPSRules(Rules):
 
     @staticmethod
     def generate_pattern_reward():
-        reward_type = choice(['coins', 'health', 'level'])
-        amounts = {'coins': [5, 7, 10, 12, 15], 'health': [5, 10, 15, 20], 'level': [1]}
-        return {
+        reward_type = choice(['coins', 'health', 'level', 'shields'])
+        amounts = {'coins': (10, 20), 'health': (20, 40), 'level': (1, 2), 'shields': (1, 2)}
+        pattern = {
             'sequence': [choice([ROCK, PAPER, SCISSORS]) for _ in range(3)],
-            'reward_type': reward_type, 'reward_amount': choice(amounts[reward_type]),
+            'reward_type': reward_type, 'reward_amount': randint(*amounts[reward_type]),
             'indicators': {},
         }
+        if reward_type == 'level':
+            pattern['reward_slot'] = randint(0, 8)
+        return pattern
 
     @staticmethod
-    def pattern_message(pattern):
+    def reward_label(pattern, cards=None):
+        label = f"{pattern['reward_type']} +{pattern['reward_amount']}"
+        slot = pattern.get('reward_slot')
+        if slot is not None:
+            label += f" ({cards[slot]['name'] if cards else f'slot {slot}'})"
+        return label
+
+    def pattern_message(self, pattern, cards=None):
         names = ' -> '.join(TYPES[ability_type] for ability_type in pattern['sequence'])
-        return f"Pattern: {names}, reward: {pattern['reward_type']} +{pattern['reward_amount']}"
+        return f"Pattern: {names}, reward: {self.reward_label(pattern, cards)}"
 
     def _advance_pattern(self, state, selections=None):
+        if not state.get('pattern') or self.basic_only(state):
+            return
         pattern = state.pattern
         indicators = {}
         for selection in self.get_selections(state) if selections is None else selections:
@@ -137,14 +158,20 @@ class RPSRules(Rules):
             elif reward == 'health':
                 heal(state, seat, amount)
             elif reward == 'level':
-                card = choice(state[seat].cards[:9])
-                level_up(state, seat, card.slot, amount)
+                slot = pattern.get('reward_slot')
+                if slot is None:
+                    slot = choice(state[seat].cards[:9]).slot
+                level_up(state, seat, slot, amount)
+            elif reward == 'shields':
+                state[seat].shields.n += amount
+                state.meta.message.append(f'{seat}: gains {amount:g} shield')
             else:
                 raise ValueError(f'Unknown pattern reward: {reward}')
-            state.meta.message.append(f'{seat} completes the pattern: {reward} +{amount}')
+            state.meta.message.append(
+                f'{seat} completes the pattern: {self.reward_label(pattern, state[seat].cards)}')
         if rewarded:
             state.pattern = self.generate_pattern_reward()
-            state.meta.message.append(self.pattern_message(state.pattern))
+            state.meta.message.append(self.pattern_message(state.pattern, state.p1.cards))
         else:
             state.pattern.indicators = indicators
 
@@ -162,7 +189,9 @@ class RPSRules(Rules):
     def deck_text(game):
         return [Box(name=card['name'], slot=card['slot'],
                     text=CARD_CLASSES[card['name']].text,
-                    modifier=CARD_CLASSES[card['name']].modifier)
+                    modifier=CARD_CLASSES[card['name']].modifier,
+                    modifier_cost=CARD_CLASSES[card['name']].modifier_cost(),
+                    tier=card['slot'] // 3 + 1)
                 for card in game.gamestate['p1']['cards'][:9]]
 
     def get_selections(self, gamestate, seats=seats):
@@ -399,6 +428,8 @@ class RPSRules(Rules):
             return None
         if kind not in ('selection', 'modifier', 'coin'):
             return 'Unknown move type'
+        if kind in ('modifier', 'coin') and self.basic_only(state):
+            return 'The basic deck has no modifiers or coin abilities'
         for restriction in active_restrictions(state, seat):
             if restriction.name == 'StageBlocked' and restriction.arg == stage:
                 return f'Move rejected due to {restriction.source}'
@@ -522,32 +553,41 @@ class RPSRules(Rules):
             if own_seat and visible[own_seat].get('infiltrate'):
                 move['as_type'] = mine.type
             error = self.move_error(visible, own_seat, move) if own_seat else 'Spectating'
+            modifier = None
+            if ability.modifier:
+                modifier_error = (self.move_error(visible, own_seat, {'type': 'modifier', 'selection': card.slot})
+                                  if own_seat else 'Spectating')
+                chosen = [visible[player].get('modifier') == card.slot for player in seats]
+                check_index = int(chosen[0]) + 2 * int(chosen[1])
+                modifier = Box(
+                    slot=card.slot, name=card.name, text=ability.modifier,
+                    cost=ability.modifier_cost(), checked=bool(check_index),
+                    check_color=[WHITE, BLUE, RED, YELLOW][check_index],
+                    disabled=not context.active or modifier_error is not None,
+                    reason=modifier_error or f'Modifier (${ability.modifier_cost()}): {ability.modifier}',
+                )
+                modifiers.append(modifier)
             cards.append(Box(
                 slot=card.slot,
                 name=f"{card.level:g}{'X' if card.cracked else ''} {card.name} {other.level:g}{'X' if other.cracked else ''}",
                 type_label=f'{TYPES[card.type]} / {TYPES[other.type]}',
                 color=color, disabled=not context.active or error is not None,
-                reason=error or ability.text,
+                reason=error or ability.text, modifier=modifier,
             ))
-            if ability.modifier:
-                modifier_error = (self.move_error(visible, own_seat, {'type': 'modifier', 'selection': card.slot})
-                                  if own_seat else 'Spectating')
-                is_selected = own_seat and visible[own_seat].get('modifier') == card.slot
-                modifiers.append(Box(
-                    slot=card.slot, name=card.name, text=ability.modifier,
-                    cost=ability.modifier_cost(),
-                    color=(BLUE if own_seat == 'p1' else RED) if is_selected
-                    else (GREEN if card.slot // 3 + 1 <= stage else WHITE),
-                    disabled=not context.active or modifier_error is not None,
-                ))
         context.cards = cards
         context.modifiers = modifiers
+        context.basic_only = self.basic_only(visible)
         context.coins = []
-        for ability, data in COIN_ABILITIES.items():
+        for ability, data in ({} if context.basic_only else COIN_ABILITIES).items():
             error = (self.move_error(visible, own_seat, {'type': 'coin', 'ability': ability})
                      if own_seat else 'Spectating')
             context.coins.append(Box(name=ability, **data, disabled=not context.active or error is not None,
                                      color=GREEN if data['tier'] <= stage else WHITE, reason=error or data['text']))
+        context.rows = [
+            Box(tier=tier, cards=cards[3 * (tier - 1):3 * tier],
+                coins=[coin for coin in context.coins if coin.tier == tier])
+            for tier in (1, 2, 3)
+        ]
         context.pass_disabled = (not own_seat or not context.active
                                  or self.move_error(visible, own_seat, {'type': 'pass'}) is not None)
         passed = [any(action['kind'] == 'pass' for action in visible[player].stages.get(str(min(stage, 3)), []))
@@ -566,14 +606,17 @@ class RPSRules(Rules):
                 f"{rest.name}({rest.arg}), through round {rest.get('until', visible.meta.round)}: {rest.source}"
                 for rest in visible[player].restrictions
             ]
-        pattern = visible.pattern
-        context.pattern = {
+        pattern = visible.get('pattern')
+        context.pattern = None if context.basic_only or not pattern else {
             'sequence': [TYPES[value] for value in pattern.sequence],
             'reward_type': pattern.reward_type, 'reward_amount': pattern.reward_amount,
+            'reward_label': self.reward_label(pattern, visible.p1.cards),
             'p1_indicator': pattern.indicators.get('p1'),
             'p2_indicator': pattern.indicators.get('p2'),
         }
         return context
 
     def game_data(self, game, seat):
-        return {'cards': self.deck_text(game), 'fps': game.options.get('fps', 8)}
+        coins = {} if self.basic_only(game.gamestate) else COIN_ABILITIES
+        return {'cards': self.deck_text(game), 'fps': game.options.get('fps', 8),
+                'coin_texts': [Box(name=name, **data) for name, data in coins.items()]}

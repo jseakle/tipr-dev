@@ -8,47 +8,63 @@
     <span style="background:#008CBA">{{ gamestate.p1.hp|floatformat:"-2" }}/{{ gamestate.p1.max_hp|floatformat:"-2" }} ({{ p1_percent }}%) | Coins: ${{ gamestate.p1.coins|floatformat:"-2" }}</span>
     <span style="background:#f44336">{{ gamestate.p2.hp|floatformat:"-2" }}/{{ gamestate.p2.max_hp|floatformat:"-2" }} ({{ p2_percent }}%) | Coins: ${{ gamestate.p2.coins|floatformat:"-2" }}</span><br>
     {% if pattern %}
-    <div style="margin: 10px 0; padding: 5px; background: #eee; color: #000; border-radius: 3px;">
+    <div style="display: table; margin: 10px 0; padding: 5px; background: #eee; color: #000; border-radius: 3px;">
         <strong>Pattern:</strong>
         {% for type in pattern.sequence %}
             <span style="{% if pattern.p1_indicator == forloop.counter0 and pattern.p2_indicator == forloop.counter0 %}background:#ffdb0d;{% elif pattern.p1_indicator == forloop.counter0 %}background:#008CBA;{% elif pattern.p2_indicator == forloop.counter0 %}background:#f44336;{% else %}background:#ccc;{% endif %} padding: 2px 8px; margin: 0 2px; border-radius: 2px;">{{ type }}</span>
             {% if not forloop.last %}→{% endif %}
         {% endfor %}
-        | <strong>Reward:</strong> {{ pattern.reward_type|upper }} +{{ pattern.reward_amount }}
+        | <strong>Reward:</strong> {{ pattern.reward_label|upper }}
     </div>
     {% endif %}
-{% for card in cards %}
-<button id="{{ card.slot }}_button" style="background-color:{{ card.color }};width:130px;" name="{{ card.name }}"
-        title="{{ card.reason }}" {% if card.disabled %}disabled{% endif %}
-        onclick="chooseAbility({{ card.slot }})" onmouseover="help({{ card.slot }})">
-    {{ card.name }}<br>{{ card.type_label }}</button>
-{% if forloop.counter|divisibleby:3 %}<br>{% endif %}
+<table class="rps-grid" style="border-collapse:collapse;">
+{% for row in rows %}
+<tr>
+    {% if not basic_only %}
+    <td style="padding:2px 12px 2px 0;vertical-align:middle;">
+    {% for coin in row.coins %}
+    <button id="coin_{{ coin.name }}" style="background-color:{{ coin.color }};width:130px;"
+            title="{{ coin.reason }}" {% if coin.disabled %}disabled{% endif %}
+            onclick="submit(JSON.stringify({type: 'coin', ability: '{{ coin.name }}'}))"
+            onmouseover="help('coin_{{ coin.name }}')">
+        {{ coin.name }}<br>(${{ coin.cost }})</button>
+    {% endfor %}
+    </td>
+    {% endif %}
+    {% for card in row.cards %}
+    <td style="padding:2px 16px 2px 2px;white-space:nowrap;vertical-align:middle;">
+        {% if card.modifier %}
+        <input type="checkbox" id="modifier_{{ card.slot }}"
+               aria-label="{{ card.modifier.name }} modifier (${{ card.modifier.cost }})"
+               style="width:18px;height:18px;margin:0 4px 0 0;vertical-align:middle;accent-color:{{ card.modifier.check_color }};"
+               title="{{ card.modifier.reason }}" {% if card.modifier.checked %}checked{% endif %}
+               {% if card.modifier.disabled %}aria-disabled="true"{% if not card.modifier.checked %} disabled{% endif %}{% endif %}
+               onclick="event.preventDefault();{% if not card.modifier.disabled %} submit(JSON.stringify({type: 'modifier', selection: {{ card.slot }}})){% endif %}"
+               onmouseover="help({{ card.slot }})">
+        {% elif not basic_only %}
+        <span style="display:inline-block;width:22px;"></span>
+        {% endif %}
+        <button id="{{ card.slot }}_button" style="background-color:{{ card.color }};width:130px;vertical-align:middle;" name="{{ card.name }}"
+                title="{{ card.reason }}" {% if card.disabled %}disabled{% endif %}
+                onclick="chooseAbility({{ card.slot }})" onmouseover="help({{ card.slot }})">
+            {{ card.name }}<br>{{ card.type_label }}</button>
+    </td>
+    {% endfor %}
+    {% if forloop.first %}
+    <td rowspan="{{ rows|length }}" style="width:300px;padding:2px 0 0 8px;vertical-align:top;position:relative;">
+        <div id="ability_text" style="position:absolute;top:2px;left:8px;right:0;min-height:120px;padding:8px;border:1px solid #ccc;border-radius:4px;background:#fff;"></div>
+    </td>
+    {% endif %}
+</tr>
 {% endfor %}
+</table>
 <button id="pass_button" style="background-color:{{ pass_color }};width:130px;" name="pass"
         {% if pass_disabled %}disabled{% endif %} onclick="submit(JSON.stringify({type: 'pass'}))">Pass stage</button><br>
-<strong>Coin abilities</strong><br>
-{% for coin in coins %}
-<button id="coin_{{ coin.name }}" style="background-color:{{ coin.color }};width:130px;"
-        title="{{ coin.reason }}" {% if coin.disabled %}disabled{% endif %}
-        onclick="submit(JSON.stringify({type: 'coin', ability: '{{ coin.name }}'}))">
-    {{ coin.name }} (${{ coin.cost }})</button>
-{% endfor %}<br>
 {% if infiltrate %}
 <label for="infiltrate-type">Infiltrate type:</label>
 <select id="infiltrate-type">
     <option value="0">Rock</option><option value="1">Paper</option><option value="2">Scissors</option>
 </select><br>
-{% endif %}
-{% if modifiers %}
-<strong>Modifiers (paid when the matching ability happens)</strong><br>
-{% for modifier in modifiers %}
-<button id="modifier_{{ modifier.slot }}" style="background-color:{{ modifier.color }};width:130px;"
-        title="{{ modifier.text }}" {% if modifier.disabled %}disabled{% endif %}
-        onclick="submit(JSON.stringify({type: 'modifier', selection: {{ modifier.slot }}}))"
-        onmouseover="help({{ modifier.slot }})">
-    {{ modifier.name }} (${{ modifier.cost }})</button>
-{% if forloop.counter|divisibleby:3 %}<br>{% endif %}
-{% endfor %}
 {% endif %}
 {% for reveal in premonitions %}<div>{{ reveal }} was not chosen in an earlier stage.</div>{% endfor %}
 </div>
