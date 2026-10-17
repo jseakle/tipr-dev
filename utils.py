@@ -11,6 +11,15 @@ from numbers import Real
 from box import Box as oBox
 from pdb import set_trace as s
 
+from channels.layers import get_channel_layer
+channel_layer = get_channel_layer()
+from asgiref.sync import async_to_sync
+
+
+def send(group, msg):
+    msg.update({'type': 'update'})
+    async_to_sync(channel_layer.group_send)(group, msg)
+
 def nothing():
     pass
 #s = nothing
@@ -78,12 +87,14 @@ def combine_numeric_modifiers(mods):
 #   nothing, tuple -> tupleops(0). maybe. the idea is that this could handle "counters" in the future
 #   number, number -> new number
 #   number, tuple -> tupleops(number)
-def update(d, u):
+def update(d, u, log=False):
     """Apply a delta in place, without retaining references to it.
 
     Numeric operations describe a change from zero, added to the existing
     number. JSON arrays of operations are accepted when replaying saved deltas.
     """
+    if log:
+        logging.warning(f'{d}\n{u}')
     if not isinstance(d, collections.abc.MutableMapping):
         raise TypeError("The update target must be a mutable mapping")
     if u is None:
@@ -256,10 +267,57 @@ class Box(oBox):
         kwargs['box_class'] = self.__class__
         super(Box, self).__init__(*args, **kwargs)
         
-    def __getattr__(self, name):
-        if name in ['del_values']:
-            setattr(self, name, [])
-        return super(Box, self).__getattr__(name)
+    # def __getattr__(self, name):
+    #     if name in ['del_values']:
+    #         setattr(self, name, [])
+    #     return super(Box, self).__getattr__(name)
+
+    # def __getitem__(self, key, *args, **kwargs):
+    #     if type(key) == int and key not in self:
+    #         return super().__getitem__(str(key), *args, **kwargs)
+    #     try:
+    #         return super().__getitem__(key, *args, **kwargs)
+    #     except Exception as e:
+    #         try:
+    #             return super().__getitem__(int(key), *args, **kwargs)
+    #         except ValueError:
+    #             raise e
+
+    # def __contains__(self, key, *args, **kwargs):
+    #     if type(key) == int and not super().__contains__(key):
+    #         return super().__contains__(str(key), *args, **kwargs)
+
+    #     has_str = super().__contains__(key, *args, **kwargs)
+    #     if not has_str:
+    #         try:
+    #             return super().__contains__(int(key), *args, **kwargs)
+    #         except ValueError:
+    #             return False
+    #     return True
+            
+
+    # def get(self, key, default=None, *args, **kwargs):
+    #     if type(key) == int and key not in self:
+    #         return super().get(str(key), default, *args, **kwargs)
+    #     if key not in self:
+    #         try:
+    #             return super().get(int(key), default, *args, **kwargs)
+    #         except ValueError:
+    #             pass
+    #     return super().get(key, default, *args, **kwargs)
+            
+
+    # def __setitem__(self, key, val, *args, **kwargs):
+    #     if type(key) == int and key not in self:
+    #         return super().__setitem__(str(key), val, *args, **kwargs)
+    #     try:
+    #         return super().__setitem__(key, val, *args, **kwargs)
+    #     except Exception as e:
+    #         try:
+    #             return super().__setitem__(int(key), val, *args, **kwargs)
+    #         except ValueError:
+    #             raise e
+        
 
     # enable assignment to possibly new fields even when a key on the path is a variable
     # box.get(var).foo = 5 doesn't work
@@ -278,3 +336,6 @@ def descendants(cls):
 
 def empty_delta():
     return Box({'meta': {'message': []}})
+
+def nearest(x, base=5):
+    return base * round(x/base)

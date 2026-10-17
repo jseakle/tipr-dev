@@ -180,9 +180,6 @@ class RPSRules(Rules):
             result.append(selection)
         return result
 
-    def response(self, game, seat):
-        return self.pure_response(Box(game.options), Box(game.gamestate), game.history, seat)
-
     def pure_response(self, options, gamestate, history, seat):
         state = Box(deepcopy(gamestate))
         if state.meta.stage >= 4:
@@ -222,9 +219,6 @@ class RPSRules(Rules):
             return True
         return bool((game.options.get('timed', True) or stage == 4)
                     and game.last_tick is not None and game.has_ticked(timestamp))
-
-    def do_update(self, game):
-        return self.pure_update(Box(game.options), Box(game.gamestate), game.history)
 
     def _set_resolution(self, options, state, selected, timing=0, factor: float = 1, resolves=True):
         card = selected.card
@@ -504,10 +498,9 @@ class RPSRules(Rules):
 
     def gameboard_context(self, name, seat, game, gamestate, now):
         visible = self.response(game, seat)
-        context = game.response(visible, now)
-        context.name = name
-        context.seat = seats[seat] if seat in (0, 1) else 'spectating'
-        context.active = game.status == ACTIVE
+        context = super().gameboard_context(name, seat, game, gamestate, now)
+        context.update(game.response(visible, now))
+        context.status = seats[seat] if seat in (0, 1) else 'spectating'
         context.finished = game.status == FINISHED
         context.winner = self.winner(visible)
         context.timed = game.options.get('timed', True)
@@ -580,5 +573,5 @@ class RPSRules(Rules):
         }
         return context
 
-    def gameboard_data(self, game):
+    def game_data(self, game, seat):
         return {'cards': self.deck_text(game), 'fps': game.options.get('fps', 8)}

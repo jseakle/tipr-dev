@@ -14,13 +14,15 @@
         $.post('register/', {name: document.getElementsByName('name')[0].value}, function(data) {})
         .fail(function(response) {console.log(response)});
     }
-    function sit(seat, type) {
-        const options = type === 'rps' ? {
-            timer: Number(document.getElementById('rps-timer').value),
-            starting_hp: Number(document.getElementById('rps-starting-hp').value),
-            deck: document.getElementById('rps-deck').value,
-            timed: document.getElementById('rps-timed').checked
-        } : {};
+    function sit(seat, type, options={}) {
+        if (type === 'rps') {
+            options = {
+                timer: Number(document.getElementById('rps-timer').value),
+                starting_hp: Number(document.getElementById('rps-starting-hp').value),
+                deck: document.getElementById('rps-deck').value,
+                timed: document.getElementById('rps-timed').checked
+            };
+        }
         $.post('sit/', {'seat': seat, 'type': type, 'options': JSON.stringify(options)}, function(data) {
             $('#sitstat').text(data.error || 'sat in ' + seat)
         }).fail(function(response) {
@@ -29,7 +31,7 @@
     }
 
     const myWorker = new Worker("static/update_worker.js");
-    myWorker.postMessage({'name': '{{request.session.name}}', 'task': 'gamelist', 'fps': 1})
+    myWorker.postMessage({'name': '{{request.session.name}}', 'join': 'home', 'task': 'gamelist', 'load': true})
 
     myWorker.onmessage = function(e) {
       response = JSON.parse(e.data);
@@ -61,6 +63,8 @@ what name you want?
 </select><br>
 <button name="rps" onclick="sit(0, 'rps')">rps</button>
 <button name="liar" onclick="sit(0, 'liar')">liar</button>
+<input id='groups_count' style='width:15px'>
+<button name="liar" onclick="sit(0, 'groups', {'player_count': Number($('#groups_count')[0].value)})">groups</button>
 <div id="sitstat"></div><br>
 <div id="gamelist"></div>
 

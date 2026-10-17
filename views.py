@@ -5,7 +5,7 @@ from copy import deepcopy
 from django.core.cache import cache
 from django.db import transaction
 
-from .utils import ACTIVE, FINISHED, PAUSED, Box, gen_patch, tznow, update
+from .utils import ACTIVE, FINISHED, PAUSED, Box, gen_patch, send, tznow, update
 from django.http.response import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect
 from django.template.loader import render_to_string
@@ -19,8 +19,8 @@ rules_classes = {
     'rps': RPSRules(),
     'liar': LiarRules(),
 }
-reserved_names = ['']
 
+reserved_names = ['']
 
 def pause_others(game):
     if game.status == FINISHED:
@@ -32,7 +32,12 @@ def pause_others(game):
         game.next_tick = rules_classes[game.type].next_tick(game)
         game.status = ACTIVE
         game.save(update_fields=['status', 'last_tick', 'next_tick'])
-    Game.objects.filter(status=ACTIVE).exclude(pk=game.pk).update(status=PAUSED)
+    # Python-side match: JSONField __contains is unsupported on SQLite.
+    players = set(game.people[0][:game.options['player_count']])
+    for other in Game.objects.filter(status=ACTIVE).exclude(pk=game.pk):
+        if players.intersection(other.people[0]):
+            other.status = PAUSED
+            other.save(update_fields=['status'])
 
 class Register(View):
     def post(self, request):
@@ -45,6 +50,7 @@ class Register(View):
         next = request.session.get('redirected_from')
         if next:
             return redirect(next)
+        send('home', {'task': 'gamelist', 'load': False})
         return HttpResponse()
 
 class Sit(View):
@@ -53,12 +59,6 @@ class Sit(View):
         name = request.session.get('name')
         if not name:
             return JsonResponse({'error': 'please register a name first'})
-        try:
-            seat = int(request.POST.get('seat'))
-        except (TypeError, ValueError):
-            return JsonResponse({'error': 'Choose a valid seat'})
-        if seat not in (0, 1):
-            return JsonResponse({'error': 'Choose a valid seat'})
         gameid = request.POST.get('game')
         if not gameid:
             game_type = request.POST.get('type')
@@ -74,9 +74,11 @@ class Sit(View):
             except (TypeError, ValueError) as error:
                 return JsonResponse({'error': f'Invalid game options: {error}'})
             starting_seats = [['']*options['player_count'], [False]*options['player_count']]
-            starting_seats[0][seat] = name
-            starting_seats[1][seat] = True
-            game = Game(type=game_type, people=starting_seats, options=options, gamestate=rules.start_state(options))
+            starting_seats[0][0] = name
+            starting_seats[1][0] = True
+            game = Game(type=game_type, people=starting_seats, options=options, gamestate=rules.start_state(Box(options)))
+            game.save()
+            game.gamestate['pk'] = game.pk
             game.keyframe()
         else:
             try:
@@ -85,19 +87,25 @@ class Sit(View):
                 return JsonResponse({'error': 'This game does not exist'})
             if game is None:
                 return JsonResponse({'error': 'This game does not exist'})
-            if game.people[0][seat]:
-                return JsonResponse({'error': 'seat already taken'})
+            seat = len([x for x in game.people[1] if x])
+            if seat >= game.options['player_count']:
+                return JsonResponse({'error': 'no free seats'})
+            if name in game.people[0][:game.options['player_count']]:
+                return JsonResponse({'error': 'only join once please'})
             game.people[0][seat] = name
             game.people[1][seat] = True
             if all(game.people[1]):
                 pause_others(game)
+                
         game.save()
         request.session['gameid'] = game.pk
+        transaction.on_commit(lambda: send('home', {'task': 'gamelist', 'load': False}))
+        transaction.on_commit(lambda: send(f'{game.type}_{game.pk}', {'task': 'update', 'id': game.pk, 'load': False}))
         return JsonResponse({'game': game.pk})  # unused, revisit
 
 def get_seat(game, name):
     seat = -1
-    if name and name in game.people[0][:2]:
+    if name and name in game.people[0][:game.options['player_count']]:
         seat = game.people[0].index(name)  # 0 is p1
     return seat
 
@@ -203,6 +211,7 @@ class Submit(View):
             logging.warning('Move rejected: %s', delta['error'])
             return JsonResponse(delta)
         apply_game_delta(game, rules, delta, now, 'move')
+        transaction.on_commit(lambda: send(f'{game.type}_{game.pk}', {'task': 'update', 'id': game.pk, 'load': False}))
         return JsonResponse(game.response(rules.response(game, seat), now))
 
 
@@ -214,10 +223,13 @@ class Home(View):
 class GamePage(View):
     def get(self, request, id):
         game = Game.objects.get(pk=id)
-        pause_others(game)
+        name = request.session.get('name')
+        if name in game.people[0]:
+            pause_others(game)
         request.session['gameid'] = game.pk
+        seat = get_seat(game, name)
         return render(request, f'{game.type}.html',
-                      {'game': game, 'gametype': game.type, 'seat': get_seat(game, request.session.get('name')), **rules_classes[game.type].gameboard_data(game)})
+                      {'game': game, 'gametype': game.type, 'seat': seat, **rules_classes[game.type].game_data(game, seat)})
 
 class GameList(object):
 

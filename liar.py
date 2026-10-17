@@ -39,15 +39,12 @@ class LiarRules(Rules):
             # CLARIFY: [<unclear statementid>]
             # BET: {<statementid>: (<stmt is true or false: bool>, int)}
             # REVEAL: int
-            # ADJUDICATE: [<false statementid>]
+            # ADJUDICATE: [<false statementid>, ..]
 
             'p1': {'hand': [], 'submission': None, 'to_revise': None, 'lies': 0},
             'p2': {'hand': [], 'submission': None, 'to_revise': None, 'lies': 0},
         }
         return starting_state
-
-    def response(self, game, seat):
-        return self.pure_response(Box(game.options), Box(game.gamestate), game.history, seat)
 
     def pure_response(self, options, gamestate, history, seat):
         # del gamestate[opp(seats[seat])]
@@ -71,9 +68,6 @@ class LiarRules(Rules):
             else:
                 return f'{s1} - {s2}: p2 wins!'
          
-    def do_update(self, game):
-        return self.pure_update(Box(game.options), Box(game.gamestate), game.history)
-
     def pure_update(self, options, gamestate, history):
         prev_state = copy.deepcopy(gamestate)
         last_round_type = ROUND_STRUCTURE[gamestate.meta.round]
@@ -229,14 +223,13 @@ class LiarRules(Rules):
         return game.options['timer']
 
     def gameboard_context(self, name, seat, game, gamestate, now):
-        response = Box()
-        gameboard_context = game.response(self.response(game, seat), now)
-        gameboard_context.name = name
+        gameboard_context = super().gameboard_context(name, seat, game, gamestate, now)
+        
+        gameboard_context.update(game.response(self.response(game, seat), now))
         gameboard_context.p1_name = game.people[0][0] if len(game.people[0]) else 'p1'
         gameboard_context.p2_name = game.people[0][1] if len(game.people[0]) > 1 else 'p2'
-        gameboard_context.active = game.status == 1
         gamestate = Box(gameboard_context.gamestate)
-        gameboard_context.seat = ('p1', 'p2', 'spectating')[seat]
+        gameboard_context.status = ('p1', 'p2', 'spectating')[seat]
         gameboard_context.hand = gamestate.ga(seats[seat]).hand
         round = ROUND_STRUCTURE[gamestate.meta.round]
         if round in ['ADJUDICATE', 'DONE']:
@@ -273,5 +266,5 @@ class LiarRules(Rules):
         return gameboard_context
         
     # could be a classmethod
-    def gameboard_data(self, game):
+    def game_data(self, game, seat):
         return {'fps': game.options.get('fps', self.DEFAULT_OPTIONS['fps'])}
