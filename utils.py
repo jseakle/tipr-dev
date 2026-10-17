@@ -321,3 +321,5 @@ def descendants(cls):
 def empty_delta():
     return Box({'meta': {'message': []}})
 
+def nearest(x, base=5):
+    return base * round(x/base)

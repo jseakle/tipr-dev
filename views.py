@@ -13,6 +13,7 @@ from django.template.loader import render_to_string
 from django.views import View
 
 from tipr.models import Game
+
 from tipr.rps import RPSRules
 from tipr.liar import LiarRules
 from tipr.groups import GroupsRules
@@ -22,6 +23,7 @@ rules_classes = {
     'liar': LiarRules(),
     'groups': GroupsRules(),
 }
+
 reserved_names = ['']
 
 def pause_others(game):
@@ -70,6 +72,8 @@ class Sit(View):
             starting_seats[0][0] = name
             starting_seats[1][0] = True
             game = Game(type=game_type, people=starting_seats, options=options, gamestate=rules.start_state(Box(options)))
+            game.save()
+            game.gamestate['pk'] = game.pk
             game.keyframe()
         else:
             game = Game.objects.get(pk=gameid)
@@ -160,7 +164,7 @@ class Update(object):
                     s()
                     message = f'error doing timed update: {e}\nresetting to {keyframe_name} {prev}'
                     game.chat('system', message, now)
-                    game.rewind(1, message)
+                    # game.rewind(1, message)
                     return rules.render_gameboard(name, load, seat, game, gamestate, now)
 
             gameboard = rules.render_gameboard(name, load, seat, game, gamestate, now)
