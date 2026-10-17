@@ -12,7 +12,8 @@ COIN_ABILITIES = {
     'Suppress': {'tier': 1, 'cost': 10,
                  'text': 'Your opponent cannot select tier three abilities this round. Not usable in stage three.'},
     'Premonition': {'tier': 2, 'cost': 2,
-                   'text': 'Reveal a selectable ability not chosen in an earlier stage. Twice per stage.'},
+                   'text': ('Reveal a selectable ability from an earlier tier that was not chosen '
+                            'in an earlier stage. Twice per stage.')},
     'Infiltrate': {'tier': 3, 'cost': 4,
                   'text': 'Permanently change the type of the RPS ability you select this round.'},
 }
@@ -45,6 +46,41 @@ def pattern_advances(state, seat, ability_type):
 
 def health_percent(player):
     return floor(100 * player.hp / player.max_hp + .5)
+
+
+def describe_badge(badge):
+    name, arg = badge[0], badge[1]
+    if name.endswith('Curse'):
+        curse_type = name[:-len('Curse')]
+        condition = f' with {curse_type.lower()}' if curse_type else ''
+        return f'if you win{condition}, take {arg:g} damage'
+    descriptions = {
+        'DmgBonus': f'+{arg} damage on your next win',
+        'DmgMultiplier': f'×{arg} damage on your next win',
+        'ScissorsDmgMultiplier': f'×{arg} damage if scissors; used up by your next win',
+        'LvlBonus': f'+{arg} levels on your next win',
+        'HalfLevel': 'half level on your next win',
+        'LvlDamageBonus': f'+{arg} level damage on your next win',
+    }
+    return descriptions.get(name, name)
+
+
+def describe_restriction(state, seat, restriction):
+    name, arg = restriction['name'], restriction.get('arg')
+    if name == 'Disabled':
+        text = f"{state[seat].cards[arg]['name']} is disabled"
+    elif name == 'StageBlocked':
+        text = f'cannot act in stage {arg}'
+    elif name == 'TypeBlocked':
+        text = f'cannot select {TYPES[arg].lower()} abilities'
+    elif name == 'Suppressed':
+        text = f'cannot select tier {arg} abilities'
+    elif name == 'CoinLocked':
+        text = 'cannot spend coins'
+    else:
+        text = name
+    until = restriction.get('until', state.meta.round)
+    return f"{text} through round {until} ({restriction['source']})"
 
 
 class GameEnded(Exception):
@@ -214,7 +250,7 @@ class RPSCard:
     def grant_badge(self, name, arg, target=None):
         target = target or self.seat
         self.state[target].badges.append([name, arg, self.state.meta.round])
-        self.state.meta.message.append(f"{target}: gains {name}({arg})")
+        self.state.meta.message.append(f"{target}: gains a badge: {describe_badge([name, arg])}")
 
     def gain_shields(self, count):
         self.player.shields.n += count
@@ -266,6 +302,10 @@ class RPSCard:
                     if name == 'Curse' or name == f"{TYPES[self.selection.chosen_type]}Curse":
                         self.mark_badge(index)
                         hurt(self.state, self.seat, amount)
+            # Spent by any win, so it rewards picking scissors next turn rather than eventually.
+            for index, (name, _, _) in enumerate(self.selection.badges):
+                if name == 'ScissorsDmgMultiplier':
+                    self.mark_badge(index)
         self.consume_badges()
 
 
@@ -353,7 +393,8 @@ class Book(RPSCard):
 class Wirecutter(RPSCard):
     type, slot = SCISSORS, 5
     ability_order = ('damage', 'badge', 'respec')
-    text = ('X damage, where X is the sum of your scissors levels. Gain a scissors-only 3x damage badge. '
+    text = ('X damage, where X is the sum of your scissors levels. Gain a badge: 3x damage if scissors, '
+            'used up by your next win of any type. '
             'T1: a random non-scissors ability of yours becomes scissors.')
 
     def damage(self):

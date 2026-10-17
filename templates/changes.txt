@@ -63,3 +63,9 @@ Starting health now: 150 (max 200)
 
 Basic-only decks were: played with the pattern, modifiers, and coin abilities.
 Basic-only decks now: have no pattern, modifiers, or coin abilities.
+
+Wirecutter was: "X damage, where X is the sum of your scissors levels. Gain a scissors-only 3x damage badge. T1: a random non-scissors ability of yours becomes scissors."
+Wirecutter now: "X damage, where X is the sum of your scissors levels. Gain a badge: 3x damage if scissors, used up by your next win of any type. T1: a random non-scissors ability of yours becomes scissors."
+
+Premonition was: could reveal an ability unlocked in the current stage.
+Premonition now: only reveals abilities unlocked in an earlier stage.

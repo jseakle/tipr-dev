@@ -5,8 +5,8 @@
 <div id="board">
     Round {{ gamestate.meta.round }} |
     {% if gamestate.meta.stage < 4 %}Stage {{ gamestate.meta.stage }} of 3{% else %}Resolution{% endif %}<br>
-    <span style="background:#008CBA">{{ gamestate.p1.hp|floatformat:"-2" }}/{{ gamestate.p1.max_hp|floatformat:"-2" }} ({{ p1_percent }}%) | Coins: ${{ gamestate.p1.coins|floatformat:"-2" }}</span>
-    <span style="background:#f44336">{{ gamestate.p2.hp|floatformat:"-2" }}/{{ gamestate.p2.max_hp|floatformat:"-2" }} ({{ p2_percent }}%) | Coins: ${{ gamestate.p2.coins|floatformat:"-2" }}</span><br>
+    <span style="background:#008CBA">{{ gamestate.p1.hp|floatformat:"-2" }}/{{ gamestate.p1.max_hp|floatformat:"-2" }} ({{ p1_percent }}%){% if not basic_only %} | Coins: ${{ gamestate.p1.coins|floatformat:"-2" }}{% endif %}</span>
+    <span style="background:#f44336">{{ gamestate.p2.hp|floatformat:"-2" }}/{{ gamestate.p2.max_hp|floatformat:"-2" }} ({{ p2_percent }}%){% if not basic_only %} | Coins: ${{ gamestate.p2.coins|floatformat:"-2" }}{% endif %}</span><br>
     {% if pattern %}
     <div style="display: table; margin: 10px 0; padding: 5px; background: #eee; color: #000; border-radius: 3px;">
         <strong>Pattern:</strong>
@@ -68,8 +68,8 @@
 {% endif %}
 {% for reveal in premonitions %}<div>{{ reveal }} was not chosen in an earlier stage.</div>{% endfor %}
 </div>
-<span style="background:#008CBA">{{gamestate.p1.shields.n}}🛡{{ p1_badges }}</span>
-<span style="background:#f44336">{{ p2_badges }}{{gamestate.p2.shields.n}}🛡</span>
+<span style="background:#008CBA">{{gamestate.p1.shields.n}}🛡 {{ p1_badges }}</span>
+<span style="background:#f44336">{{ p2_badges }} {{gamestate.p2.shields.n}}🛡</span>
 {% for restriction in p1_restrictions %}<div><span style="background:#008CBA">{{ restriction }}</span></div>{% endfor %}
 {% for restriction in p2_restrictions %}<div><span style="background:#f44336">{{ restriction }}</span></div>{% endfor %}
 {% endblock gameboard %}

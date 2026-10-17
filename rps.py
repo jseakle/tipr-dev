@@ -6,7 +6,7 @@ from random import choice, randint, shuffle
 
 from .rps_cards import (
     CARD_CLASSES, COIN_ABILITIES, DECKS, active_restrictions,
-    add_restriction, heal, health_percent, hurt, level_up,
+    add_restriction, describe_badge, describe_restriction, heal, health_percent, hurt, level_up,
 )
 from .rules import Rules
 from .utils import (
@@ -300,9 +300,10 @@ class RPSRules(Rules):
             self._set_resolution(options, state, loser, resolves=False)
         state.meta.stage = 4
         state.meta.outcome = {'player': order[0].seat, 'type': outcome}
+        basic = self.basic_only(state)
         descriptions = {
-            'truce': 'Truce: both players take 1 damage and earn $1.',
-            'default': 'One player passes: +2 health and $2, then the selected ability.',
+            'truce': 'Truce: both players take 1 damage' + ('.' if basic else ' and earn $1.'),
+            'default': 'One player passes: +2 health' + ('' if basic else ' and $2') + ', then the selected ability.',
             'tie': f'Same type and stage: {order[0].seat} acts first.',
             'ambush': f'{order[0].seat} acts at half level, without timing bonuses.',
             'win': f'{order[0].seat} wins RPS.',
@@ -408,6 +409,7 @@ class RPSRules(Rules):
                    for action in state[other].stages[str(stage)] if action['kind'] == 'RPS'}
         revealed = state[seat].get('premonitions', {}).get(str(state.meta.stage), [])
         return [slot for slot in range(9) if slot not in earlier and slot not in revealed
+                and slot // 3 + 1 < state.meta.stage
                 and self._ability_error(state, other, slot) is None]
 
     def move_error(self, state, seat, move):
@@ -601,10 +603,9 @@ class RPSRules(Rules):
                     context.premonitions.append(f"Stage {reveal_stage}: {visible[opp(own_seat)].cards[slot].name}")
         for player in seats:
             context[f'{player}_percent'] = health_percent(visible[player])
-            context[f'{player}_badges'] = [f'{badge[0]}({badge[1]})' for badge in visible[player].badges]
+            context[f'{player}_badges'] = '; '.join(describe_badge(badge) for badge in visible[player].badges)
             context[f'{player}_restrictions'] = [
-                f"{rest.name}({rest.arg}), through round {rest.get('until', visible.meta.round)}: {rest.source}"
-                for rest in visible[player].restrictions
+                describe_restriction(visible, player, rest) for rest in visible[player].restrictions
             ]
         pattern = visible.get('pattern')
         context.pattern = None if context.basic_only or not pattern else {
