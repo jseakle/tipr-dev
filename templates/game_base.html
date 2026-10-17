@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block head %}
 {{ block.super }}
-<link type="text/css" rel="stylesheet" href="https://tipr.tk/static/{{gametype}}.css" />
+<link type="text/css" rel="stylesheet" href="/static/{{gametype}}.css" />
 
 {% endblock %}
 
@@ -25,9 +25,25 @@ function submit(move, message=true, success=null) {
 }
 var load = true;
 const myWorker = new Worker("../static/update_worker.js");
-//myWorker.postMessage({'name': '{{request.session.name}}', 'id': window.location.pathname.match(/\d+/)[0], 'task': 'update', 'fps': {{fps}}})
 const id = window.location.pathname.match(/\d+/)[0]
 myWorker.postMessage({'join': '{{gametype}}_'+id, 'task': 'update', 'id': id})
+
+// Heartbeat: the server is stateless, so timed updates happen when a seated player polls after the deadline.
+const heartbeat = new Timer({
+  fps: {{fps}},
+  run: function () {
+    myWorker.postMessage({'task': 'update', 'id': id, 'load': false})
+  }
+});
+heartbeat.start();
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    heartbeat.slow()
+  } else {
+    heartbeat.start()
+  }
+});
 
 myWorker.onmessage = function(e) {
   response = JSON.parse(e.data);

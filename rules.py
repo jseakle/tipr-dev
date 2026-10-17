@@ -1,4 +1,5 @@
-from django.template.loader import render_to_string 
+from django.template import TemplateDoesNotExist
+from django.template.loader import get_template, render_to_string
 from tipr.utils import *
 from django.core.cache import cache
 import logging, json
@@ -41,16 +42,22 @@ class Rules(object):
             cache.set(f'{name}_{game.pk}_gameboard', response.gameboard)
 
         # modularize this idea later
+        # Input templates are optional; games without one render no inputs.
         try:
-            response.inputs = render_to_string(f'{game.type}_inputs.html', gameboard_context)
-            
-            if not load and response.inputs == cache.get(f'{name}_{game.pk}_inputs'):
-                response.inputs = 'U'
-            else:
-                cache.set(f'{name}_{game.pk}_inputs', response.inputs)
-        except Exception:
-            pass
-            logging.exception('failed input render')        
+            inputs_template = get_template(f'{game.type}_inputs.html')
+        except TemplateDoesNotExist:
+            inputs_template = None
+        if inputs_template is not None:
+            try:
+                response.inputs = inputs_template.render(gameboard_context)
+
+                if not load and response.inputs == cache.get(f'{name}_{game.pk}_inputs'):
+                    response.inputs = 'U'
+                else:
+                    cache.set(f'{name}_{game.pk}_inputs', response.inputs)
+            except Exception:
+                response.pop('inputs', None)
+                logging.exception('failed input render')
         rendered_callback = json.dumps(response.change_callback_data)
         if not load and rendered_callback == cache.get(f'{name}_{game.pk}_change_callback_data'):
             response.change_callback_data = 'U'

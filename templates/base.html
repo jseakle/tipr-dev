@@ -43,7 +43,8 @@ Timer.prototype =
         var $this = this;
 
         this.settings.run();
-        this.timeInit += this.interval;
+        // Skip beats missed while the tab was throttled instead of firing them all at once.
+        this.timeInit = Math.max(this.timeInit + this.interval, (new Date).getTime());
 
         this.timer = setTimeout(
             function(){$this.run()},
