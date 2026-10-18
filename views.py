@@ -20,7 +20,8 @@ rules_classes = {
     'liar': LiarRules(),
 }
 
-reserved_names = ['']
+computer_names = {name for rules in rules_classes.values() for name in rules.computer_players}
+reserved_names = ['', *sorted(computer_names)]
 
 def pause_others(game):
     if game.status == FINISHED:
@@ -33,7 +34,7 @@ def pause_others(game):
         game.status = ACTIVE
         game.save(update_fields=['status', 'last_tick', 'next_tick'])
     # Python-side match: JSONField __contains is unsupported on SQLite.
-    players = set(game.people[0][:game.options['player_count']])
+    players = set(game.people[0][:game.options['player_count']]) - computer_names
     for other in Game.objects.filter(status=ACTIVE).exclude(pk=game.pk):
         if players.intersection(other.people[0]):
             other.status = PAUSED
@@ -90,7 +91,17 @@ class Sit(View):
             seat = len([x for x in game.people[1] if x])
             if seat >= game.options['player_count']:
                 return JsonResponse({'error': 'no free seats'})
-            if name in game.people[0][:game.options['player_count']]:
+            seated = game.people[0][:game.options['player_count']]
+            computer = request.POST.get('computer')
+            if computer is not None:
+                if computer not in rules_classes[game.type].computer_players:
+                    return JsonResponse({'error': 'Unknown computer player'})
+                if name not in seated:
+                    return JsonResponse({'error': 'Only a seated player can add a computer player'})
+                if computer in seated:
+                    return JsonResponse({'error': 'That computer player is already seated'})
+                name = computer
+            elif name in seated:
                 return JsonResponse({'error': 'only join once please'})
             game.people[0][seat] = name
             game.people[1][seat] = True
@@ -108,6 +119,21 @@ def get_seat(game, name):
     if name and name in game.people[0][:game.options['player_count']]:
         seat = game.people[0].index(name)  # 0 is p1
     return seat
+
+
+def run_computer_players(game, rules, now):
+    """Let each seated computer player submit its moves, as if it had sent them itself."""
+    for seat, name in enumerate(game.people[0][:game.options['player_count']]):
+        player = rules.computer_players.get(name)
+        if player is None or game.status != ACTIVE or rules.winner(Box(game.gamestate)):
+            continue
+        for move in player.moves(rules, rules.response(game, seat), game.history, seat):
+            delta = rules.move(game, seat, move)
+            if 'error' in delta:
+                logging.warning('%s move rejected: %s', name, delta['error'])
+                break
+            apply_game_delta(game, rules, delta, now, 'move')
+    return Box(game.gamestate)
 
 
 def apply_game_delta(game, rules, delta, now, event_type):
@@ -168,8 +194,10 @@ class Update(object):
 
             if rules.winner(gamestate):
                 gamestate = apply_game_delta(game, rules, {}, now, 'time')
-            elif rules.should_update(game, gamestate, now):
-                gamestate = apply_game_delta(game, rules, rules.do_update(game), now, 'time')
+            else:
+                gamestate = run_computer_players(game, rules, now)
+                if rules.should_update(game, gamestate, now):
+                    gamestate = apply_game_delta(game, rules, rules.do_update(game), now, 'time')
             return rules.render_gameboard(name, load, seat, game, gamestate, now)
 
 class Submit(View):
@@ -211,6 +239,7 @@ class Submit(View):
             logging.warning('Move rejected: %s', delta['error'])
             return JsonResponse(delta)
         apply_game_delta(game, rules, delta, now, 'move')
+        run_computer_players(game, rules, now)
         transaction.on_commit(lambda: send(f'{game.type}_{game.pk}', {'task': 'update', 'id': game.pk, 'load': False}))
         return JsonResponse(game.response(rules.response(game, seat), now))
 

@@ -8,6 +8,7 @@ from .rps_cards import (
     CARD_CLASSES, COIN_ABILITIES, DECKS, active_restrictions,
     add_restriction, describe_badge, describe_restriction, heal, health_percent, hurt, level_up,
 )
+from .rps_bots import EnsembleBot, RandomBot
 from .rules import Rules
 from .utils import (
     ACTIVE, BLUE, Box, FINISHED, GREEN, INCOME, PAPER, RED,
@@ -18,6 +19,7 @@ from .utils import (
 
 class RPSRules(Rules):
     keyframe_name = 'round'
+    computer_players = {bot.name: bot for bot in (RandomBot(), EnsembleBot())}
     DEFAULT_OPTIONS = {
         'timed': True,
         'timer': 10,

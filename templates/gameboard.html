@@ -2,6 +2,13 @@
 {% if seat == -1 and not active and not finished %}
 <button id="sit" onclick="sit()">Join</button>
 {% endif %}
+{% if computer_players %}
+<label for="computer-player">Computer player</label>
+<select id="computer-player">
+    {% for kind in computer_players %}<option value="{{ kind }}">{{ kind }}</option>{% endfor %}
+</select>
+<button id="add-computer" onclick="addComputer()">Add</button><br>
+{% endif %}
 Hi {{ name }}, you are {{ status }}<br>
 {% if finished %}{{ winner }}{% elif not active %}Waiting for opponent{% endif %}
 <div id="timer"></div>

@@ -5,6 +5,9 @@ from django.core.cache import cache
 import logging, json
 
 class Rules(object):
+    # name -> ComputerPlayer; the name doubles as the seat name, so it is reserved for humans.
+    computer_players = {}
+
     def winner(self, game):
         pass
 
@@ -25,6 +28,9 @@ class Rules(object):
             'name': name,                                      
             'seat': seat,
             'active': game.status == ACTIVE,
+            'computer_players': (list(self.computer_players)
+                                 if seat != -1 and game.status == CREATED and not all(game.people[1])
+                                 else []),
         })
 
     def render_gameboard(self, name, load, seat, game, gamestate, now):

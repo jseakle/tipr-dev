@@ -19,6 +19,12 @@
 	    window.timeoutid = setTimeout(() => $('#sitstat').html('<br>'), 4000)
 	});
     }
+    function addComputer() {
+        $.post('../sit/', {game: {{game.id}}, computer: $('#computer-player').val()}, function(data) {
+            $('#sitstat').html(data['error'] || 'Added computer player')
+            window.timeoutid = setTimeout(() => $('#sitstat').html('<br>'), 4000)
+        });
+    }
 </script>
 {% endblock %}
 {% block extra_js %}
