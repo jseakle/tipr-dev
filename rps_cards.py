@@ -3,7 +3,7 @@ from math import floor
 from random import choice
 
 from .utils import (
-    Box, DEFAULT, INCOME, PAPER, ROCK, SCISSORS, TRUCE, TYPES,
+    Box, DEFAULT, GREEN, INCOME, PAPER, RED, ROCK, SCISSORS, TRUCE, TYPES,
     gen_patch, opp, seats,
 )
 
@@ -99,6 +99,7 @@ def hurt(state, seat, amount, *, check_winner=True):
         return
     player.hp -= amount
     player.damage_taken = player.get('damage_taken', 0) + amount
+    player.damage_since_win = player.get('damage_since_win', 0) + amount
     state.meta.message.append(f"{seat}: takes {amount:g} damage")
     if player.hp <= 0 and check_winner:
         state.meta.winner = opp(seat)
@@ -120,6 +121,25 @@ def level_up(state, seat, slot, amount=1):
     state.meta.message.append(f"{seat}: {card.name} gains {amount:g} level")
 
 
+def set_type(card, ability_type, until=None):
+    """Change an ability's type, permanently or (with `until`) through the given round."""
+    if until is None:
+        card.pop('temp_type', None)
+    elif card.type != ability_type:
+        original = card.get('temp_type', {}).get('original', card.type)
+        card.temp_type = {'type': ability_type, 'original': original, 'until': until}
+    card.type = ability_type
+
+
+def expire_temporary_types(player, next_round):
+    for card in player.cards:
+        temp = card.get('temp_type')
+        if temp and temp['until'] < next_round:
+            if card.type == temp['type']:
+                card.type = temp['original']
+            del card['temp_type']
+
+
 def level_damage(state, seat, slot, amount=1):
     if int(amount) != amount or amount < 0:
         raise ValueError("Level damage must be a nonnegative whole number")
@@ -137,12 +157,83 @@ def level_damage(state, seat, slot, amount=1):
             state.meta.message.append(f"{seat}: {card.name} cracks")
 
 
+def _format(value):
+    if isinstance(value, (int, float)):
+        return f'{round(value, 2):g}'
+    return str(value)
+
+
+class CardText:
+    """Builds a card's text.
+
+    Without a view it is the generic text. With a view, the viewer's own copy of the card is
+    described: calculated values get their current value in parentheses, and conditions that
+    can already be decided are colored by whether they will happen (in html mode).
+    """
+
+    def __init__(self, view=None, seat=None, slot=None, html=True):
+        self.view, self.seat, self.slot, self.html = view, seat, slot, html
+
+    @property
+    def live(self):
+        return self.view is not None
+
+    @property
+    def player(self):
+        return self.view[self.seat]
+
+    @property
+    def other(self):
+        return self.view[opp(self.seat)]
+
+    @property
+    def card(self):
+        return self.player.cards[self.slot]
+
+    @property
+    def L(self):
+        return self.card.level
+
+    def v(self, label, compute):
+        if not self.live:
+            return label
+        value = compute()
+        return label if value is None else f'{label} ({_format(value)})'
+
+    def when(self, text, compute):
+        if not self.live or not self.html:
+            return text
+        truth = compute()
+        if truth is None:
+            return text
+        return f'<span style="color:{GREEN if truth else RED}">{text}</span>'
+
+    def last_selection(self):
+        previous = self.player.get('last_selection')
+        return self.player.cards[previous['slot']] if previous else None
+
+
 class RPSCard:
     type = DEFAULT
     slot = -1
     text = ''
     modifier = None
     badge_multiplier = 1
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if 'describe' in cls.__dict__:
+            cls.text = cls.describe(CardText())
+        if 'describe_modifier' in cls.__dict__:
+            cls.modifier = cls.describe_modifier(CardText())
+
+    @classmethod
+    def describe(cls, t):
+        return cls.text
+
+    @classmethod
+    def describe_modifier(cls, t):
+        return cls.modifier
     ability_order = ()
 
     def __init__(self, state, seat):
@@ -312,7 +403,11 @@ class RPSCard:
 class Pebble(RPSCard):
     type, slot = ROCK, 0
     ability_order = ('damage', 'badge')
-    text = '5 + L damage. T1: gain a 2x damage badge. T2: +3L damage.'
+
+    @classmethod
+    def describe(cls, t):
+        return (f"{t.v('5 + L', lambda: 5 + t.L)} damage. T1: gain a 2x damage badge. "
+                f"T2: {t.v('+3L', lambda: 3 * t.L)} damage.")
 
     def damage(self):
         self.hit(self.other_seat, 5 + self.level + (3 * self.level if self.timing >= 2 else 0))
@@ -325,7 +420,11 @@ class Pebble(RPSCard):
 class Napkin(RPSCard):
     type, slot = PAPER, 1
     ability_order = ('health', 'damage', 'shield')
-    text = '2L health. T1: +4X damage, where X is opposing level. T2: gain a shield.'
+
+    @classmethod
+    def describe(cls, t):
+        return (f"{t.v('2L', lambda: 2 * t.L)} health. "
+                "T1: +4X damage, where X is opposing level. T2: gain a shield.")
 
     def health(self):
         heal(self.state, self.seat, 2 * self.level)
@@ -342,8 +441,12 @@ class Napkin(RPSCard):
 class ButterKnife(RPSCard):
     type, slot = SCISSORS, 2
     ability_order = ('damage', 'restriction')
-    text = ('10 + 2L damage. Disable opposing ability for 1 turn. '
-            'T1: disable another random opposing ability for 1 turn. T2: +10 + 2L damage.')
+
+    @classmethod
+    def describe(cls, t):
+        return (f"{t.v('10 + 2L', lambda: 10 + 2 * t.L)} damage. Disable opposing ability for 1 turn. "
+                "T1: disable another random opposing ability for 1 turn. "
+                f"T2: {t.v('+10 + 2L', lambda: 10 + 2 * t.L)} damage.")
 
     def damage(self):
         amount = 10 + 2 * self.level
@@ -362,7 +465,10 @@ class ButterKnife(RPSCard):
 class Boulder(RPSCard):
     type, slot = ROCK, 3
     ability_order = ('badge',)
-    text = 'Gain a +25+5L damage badge. T1: gain a +2 level badge.'
+
+    @classmethod
+    def describe(cls, t):
+        return f"Gain a {t.v('+25+5L', lambda: 25 + 5 * t.L)} damage badge. T1: gain a +2 level badge."
 
     def badge(self):
         self.grant_badge('DmgBonus', 25 + 5 * self.level)
@@ -373,16 +479,32 @@ class Boulder(RPSCard):
 class Book(RPSCard):
     type, slot = PAPER, 4
     ability_order = ('damage', 'respec', 'previous_level')
-    text = ('1+7X damage, where X is the total level of all abilities sharing this type. '
-            'Become the type you selected last turn, or paper. That previous ability levels up. '
-            'T1: the previous ability levels up two more times.')
+
+    @classmethod
+    def describe(cls, t):
+        def shared_levels():
+            return 1 + 7 * sum(card.level for player in (t.player, t.other) for card in player.cards[:9]
+                               if card.type == t.card.type)
+
+        def previous_type():
+            previous = t.player.get('last_selection')
+            return TYPES[previous['type']] if previous else 'none'
+
+        def previous_name():
+            card = t.last_selection()
+            return card.name if card else 'none'
+
+        return (f"{t.v('1+7X', shared_levels)} damage, where X is the total level of all abilities sharing "
+                f"this type. Become {t.v('the type you selected last turn', previous_type)}, "
+                f"or paper. {t.v('That previous ability', previous_name)} levels up. "
+                "T1: the previous ability levels up two more times.")
 
     def damage(self):
         self.hit(self.other_seat, 1 + 7 * self.total_level(self.selection.chosen_type, seats))
 
     def respec(self):
         previous = self.player.get('last_selection')
-        self.card.type = previous['type'] if previous else PAPER
+        set_type(self.card, previous['type'] if previous else PAPER)
 
     def previous_level(self):
         previous = self.player.get('last_selection')
@@ -393,9 +515,13 @@ class Book(RPSCard):
 class Wirecutter(RPSCard):
     type, slot = SCISSORS, 5
     ability_order = ('damage', 'badge', 'respec')
-    text = ('X damage, where X is the sum of your scissors levels. Gain a badge: 3x damage if scissors, '
-            'used up by your next win of any type. '
-            'T1: a random non-scissors ability of yours becomes scissors.')
+
+    @classmethod
+    def describe(cls, t):
+        return (f"{t.v('X', lambda: sum(c.level for c in t.player.cards[:9] if c.type == SCISSORS))} damage, "
+                "where X is the sum of your scissors levels. Gain a badge: 3x damage if scissors, "
+                "used up by your next win of any type. "
+                "T1: a random non-scissors ability of yours becomes scissors.")
 
     def damage(self):
         self.hit(self.other_seat, self.total_level(SCISSORS, (self.seat,)))
@@ -408,7 +534,7 @@ class Wirecutter(RPSCard):
             candidates = [card for card in self.player.cards[:9] if card.type != SCISSORS]
             if candidates:
                 card = choice(candidates)
-                card.type = SCISSORS
+                set_type(card, SCISSORS)
                 self.state.meta.message.append(f'{self.seat}: {card.name} becomes scissors')
             else:
                 self.state.meta.message.append(f'{self.seat}: all RPS abilities are already scissors')
@@ -418,7 +544,11 @@ class Mountain(RPSCard):
     type, slot = ROCK, 6
     badge_multiplier = 2
     ability_order = ('damage', 'crack')
-    text = '15 + 10L damage. Crack all opposing abilities. Badges apply twice.'
+
+    @classmethod
+    def describe(cls, t):
+        return (f"{t.v('15 + 10L', lambda: 15 + 10 * t.L)} damage. "
+                "Crack all opposing abilities. Badges apply twice.")
 
     def damage(self):
         self.hit(self.other_seat, 15 + 10 * self.level)
@@ -431,8 +561,11 @@ class Mountain(RPSCard):
 class Contract(RPSCard):
     type, slot = PAPER, 7
     ability_order = ('damage', 'shield', 'badge')
-    text = ('7 damage. Gain a shield. Your opponent gains an end badge: '
-            'if this is the opposing type, take 20 + 10L damage.')
+
+    @classmethod
+    def describe(cls, t):
+        return ("7 damage. Gain a shield. Your opponent gains an end badge: "
+                f"if this is the opposing type, take {t.v('20 + 10L', lambda: 20 + 10 * t.L)} damage.")
 
     def damage(self):
         self.hit(self.other_seat, 7)
@@ -449,8 +582,12 @@ class Contract(RPSCard):
 class TwoHander(RPSCard):
     type, slot = SCISSORS, 8
     ability_order = ('damage', 'restriction')
-    text = ('5 damage at level zero, otherwise 50 damage. If the opposing ability is cracked, disable all opposing '
-            'abilities for one turn and this ability for three turns.')
+
+    @classmethod
+    def describe(cls, t):
+        return (f"{t.when('5 damage at level zero', lambda: t.L == 0)}, "
+                f"{t.when('otherwise 50 damage', lambda: t.L != 0)}. If the opposing ability is cracked, "
+                "disable all opposing abilities for one turn and this ability for three turns.")
 
     def damage(self):
         self.hit(self.other_seat, 5 if self.level == 0 else 50)
@@ -465,15 +602,21 @@ class TwoHander(RPSCard):
 class Nugget(RPSCard):
     type, slot = ROCK, 0
     ability_order = ('damage', 'coins', 'badge')
-    modifier = 'Triple coins.'
-    text = '10 damage. $1+L/2. T1: +L damage, $3. T2: gain a +2 level damage badge.'
+
+    @classmethod
+    def describe(cls, t):
+        return (f"{t.v('5L + 5', lambda: 5 * t.L + 5)} damage. ${t.v('2L', lambda: 2 * t.L)}. "
+                f"T1: {t.v('+5L', lambda: 5 * t.L)} damage. T2: gain a +2 level damage badge.")
+
+    @classmethod
+    def describe_modifier(cls, t):
+        return 'Triple coins.'
 
     def damage(self):
-        self.hit(self.other_seat, 10 + (self.level if self.timing >= 1 else 0))
+        self.hit(self.other_seat, 5 * self.level + 5 + (5 * self.level if self.timing >= 1 else 0))
 
     def coins(self):
-        amount = 1 + self.level / 2 + (3 if self.timing >= 1 else 0)
-        self.player.coins += amount * (3 if self.modified else 1)
+        self.player.coins += 2 * self.level * (3 if self.modified else 1)
 
     def badge(self):
         if self.timing >= 2:
@@ -482,32 +625,52 @@ class Nugget(RPSCard):
 
 class LoveLetter(RPSCard):
     type, slot = PAPER, 1
-    ability_order = ('health', 'damage')
-    modifier = 'Double health.'
-    text = ('5 damage. L health. T1: +%health damage equal to your health% minus '
-            "your opponent's health%. T2: double health before T1.")
+    ability_order = ('health', 'damage', 'uncrack')
+
+    @classmethod
+    def describe(cls, t):
+        return (f"5 damage. {t.v('3L', lambda: 3 * t.L)} health. "
+                "T1: uncrack a random one of your cracked abilities. "
+                "T2: double health (stacks with the modifier).")
+
+    @classmethod
+    def describe_modifier(cls, t):
+        return 'Double health.'
 
     def health(self):
-        amount = self.level * (2 if self.modified else 1) * (2 if self.timing >= 2 else 1)
+        amount = 3 * self.level * (2 if self.modified else 1) * (2 if self.timing >= 2 else 1)
         heal(self.state, self.seat, amount)
 
     def damage(self):
-        amount = 5
-        if self.timing >= 1:
-            difference = health_percent(self.player) - health_percent(self.other)
-            amount += self.selection.health_before[self.other_seat] * difference / 100
-        self.hit(self.other_seat, amount)
+        self.hit(self.other_seat, 5)
+
+    def uncrack(self):
+        cracked = [card for card in self.player.cards[:9] if card.cracked]
+        if self.timing >= 1 and cracked:
+            card = choice(cracked)
+            card.cracked = False
+            self.state.meta.message.append(f'{self.seat}: {card.name} is no longer cracked')
 
 
 class Dagger(RPSCard):
     type, slot = SCISSORS, 2
     ability_order = ('damage', 'coins', 'restriction')
-    modifier = '+2L damage.'
-    text = ('15 + 3L damage. If this advances your indicator, $2. '
-            "T1: your opponent cannot act in the same stage next turn. T2: double damage.")
+
+    @classmethod
+    def describe(cls, t):
+        def advances():
+            return pattern_advances(t.view, t.seat, t.card.type) if t.view.get('pattern') else None
+
+        return (f"{t.v('10L + 10', lambda: 10 * t.L + 10)} damage. "
+                f"{t.when('If this advances your indicator, $2.', advances)} "
+                "T1: your opponent cannot act in the same stage next turn. T2: double damage.")
+
+    @classmethod
+    def describe_modifier(cls, t):
+        return f"{t.v('+5L', lambda: 5 * t.L)} damage."
 
     def damage(self):
-        amount = 15 + 3 * self.level + (2 * self.level if self.modified else 0)
+        amount = 10 * self.level + 10 + (5 * self.level if self.modified else 0)
         self.hit(self.other_seat, amount * (2 if self.timing >= 2 else 1))
 
     def coins(self):
@@ -522,61 +685,108 @@ class Dagger(RPSCard):
 
 class Avalanche(RPSCard):
     type, slot = ROCK, 3
-    ability_order = ('damage', 'coins', 'levels')
-    modifier = 'Your opponent loses $L.'
-    text = '4+L damage. $4+L. T1: all your rock abilities level up.'
+    ability_order = ('damage', 'coins', 'restriction')
+
+    @classmethod
+    def describe(cls, t):
+        return (f"{t.v('10L', lambda: 10 * t.L)} damage. ${t.v('4L', lambda: 4 * t.L)}. "
+                "When this levels up, your other rock abilities level up too. "
+                "T1: level damage dealt this round also applies to all other abilities of the opposing type.")
+
+    @classmethod
+    def describe_modifier(cls, t):
+        return 'Your opponent cannot spend coins next turn.'
 
     def damage(self):
-        self.hit(self.other_seat, 4 + self.level)
+        self.hit(self.other_seat, 10 * self.level)
 
     def coins(self):
-        self.player.coins += 4 + self.level
-        if self.modified:
-            self.other.coins = max(0, self.other.coins - self.level)
+        self.player.coins += 4 * self.level
 
-    def levels(self):
-        if self.timing >= 1:
+    def restriction(self):
+        if self.modified:
+            add_restriction(self.state, self.other_seat, 'CoinLocked', None, 1, self.source())
+
+    def level_up(self):
+        if self.winning:
+            level_up(self.state, self.seat, self.card.slot)
             for card in self.player.cards[:9]:
-                if card.type == ROCK:
+                if card.type == ROCK and card.slot != self.card.slot:
                     level_up(self.state, self.seat, card.slot)
+
+    def level_damage(self):
+        if not self.winning or self.opposing_slot is None:
+            return
+        amount = self.numeric_badges('level_damage', 1)
+        targets = [self.opposing_slot]
+        if self.timing >= 1:
+            targets.extend(card.slot for card in self.other.cards[:9]
+                           if card.slot != self.opposing_slot and card.type == self.opposing_type)
+        for slot in targets:
+            level_damage(self.state, self.other_seat, slot, amount)
 
 
 class Thesaurus(RPSCard):
     type, slot = PAPER, 4
     ability_order = ('damage', 'shield', 'restriction')
-    modifier = 'Your opponent loses all shields before damage.'
-    text = ('1 damage. Gain a shield at level 1+, and two more at level 5+. '
-            'T1: +X damage, where X is opposing coins spent this turn; disable the opposing ability for one turn.')
+
+    @classmethod
+    def describe(cls, t):
+        return ("1 damage three times (badges only boost the first hit). "
+                f"{t.when('Gain a shield if this is level one or higher.', lambda: t.L >= 1)} "
+                f"{t.when('Gain two more if it is level three or higher.', lambda: t.L >= 3)} "
+                "T1: disable your opponent's abilities of the opposing type for one turn.")
+
+    @classmethod
+    def describe_modifier(cls, t):
+        def spent():
+            this_turn = t.other.get('coins_spent', 0) if t.view.meta.stage >= 4 else '?'
+            return f"{_format(t.other.get('last_coins_spent', 0))} + {_format(this_turn)}"
+
+        return (f"The third hit does {t.v('+X', spent)} damage, where X is the coins your opponent "
+                "spent last turn plus this turn.")
 
     def damage(self):
-        if self.modified:
-            self.other.shields.n = 0
-            self.other.shields.this_turn = 0
-        self.hit(self.other_seat, 1 + (self.other.get('coins_spent', 0) if self.timing >= 1 else 0))
+        # Badges only boost the first hit.
+        self.hit(self.other_seat, 1)
+        hurt(self.state, self.other_seat, 1)
+        bonus = self.other.get('last_coins_spent', 0) + self.other.get('coins_spent', 0)
+        hurt(self.state, self.other_seat, 1 + (bonus if self.modified else 0))
 
     def shield(self):
-        count = int(self.level >= 1) + 2 * int(self.level >= 5)
+        count = int(self.level >= 1) + 2 * int(self.level >= 3)
         if count:
             self.gain_shields(count)
 
     def restriction(self):
-        if self.timing >= 1:
-            self.disable_opponent(1)
+        if self.timing >= 1 and self.opposing_type != DEFAULT:
+            for card in self.other.cards[:9]:
+                if card.type == self.opposing_type:
+                    add_restriction(self.state, self.other_seat, 'Disabled', card.slot, 1, self.source())
 
 
 class Shears(RPSCard):
     type, slot = SCISSORS, 5
-    ability_order = ('damage', 'restriction', 'badge')
-    modifier = 'Your opponent cannot spend coins next turn.'
-    text = ('5+5L damage. When this levels down, 10 damage. '
-            'T1: your opponent gains a badge that halves effective level.')
+    ability_order = ('damage', 'respec', 'badge')
+
+    @classmethod
+    def describe(cls, t):
+        return (f"{t.v('15L + 15', lambda: 15 * t.L + 15)} damage. When this levels down, 10 damage. "
+                "T1: your opponent gains a badge that halves effective level.")
+
+    @classmethod
+    def describe_modifier(cls, t):
+        return 'A random non-scissors ability of yours becomes scissors next turn.'
 
     def damage(self):
-        self.hit(self.other_seat, 5 + 5 * self.level)
+        self.hit(self.other_seat, 15 * self.level + 15)
 
-    def restriction(self):
-        if self.modified:
-            add_restriction(self.state, self.other_seat, 'CoinLocked', None, 1, self.source())
+    def respec(self):
+        candidates = [card for card in self.player.cards[:9] if card.type != SCISSORS]
+        if self.modified and candidates:
+            card = choice(candidates)
+            set_type(card, SCISSORS, until=self.state.meta.round + 1)
+            self.state.meta.message.append(f'{self.seat}: {card.name} becomes scissors next turn')
 
     def badge(self):
         if self.timing >= 1:
@@ -585,41 +795,50 @@ class Shears(RPSCard):
 
 class Asteroid(RPSCard):
     type, slot = ROCK, 6
-    ability_order = ('opposing_damage', 'self_damage', 'coins', 'badge')
-    modifier = 'Steal $X instead.'
-    text = ('4+L damage to both players, opponent first. $X, where X is damage you '
-            'took last turn. Gain a +L damage badge.')
+    ability_order = ('coins', 'badge')
 
-    def opposing_damage(self):
-        self.hit(self.other_seat, 4 + self.level)
+    @classmethod
+    def describe(cls, t):
+        return (f"Gain a {t.v('+20L', lambda: 20 * t.L)} damage badge. "
+                f"${t.v('X', lambda: t.player.get('damage_since_win', 0))}, "
+                "where X is the damage you have taken since you last won RPS.")
 
-    def self_damage(self):
-        self.hit(self.seat, 4 + self.level)
+    @classmethod
+    def describe_modifier(cls, t):
+        return f"Your opponent loses ${t.v('X', lambda: t.player.get('damage_since_win', 0))}."
 
     def coins(self):
-        amount = self.player.get('last_damage', 0)
-        if self.modified:
-            amount = min(amount, self.other.coins)
-            self.other.coins -= amount
+        amount = self.player.get('damage_since_win', 0)
         self.player.coins += amount
+        if self.modified:
+            self.other.coins = max(0, self.other.coins - amount)
 
     def badge(self):
-        self.grant_badge('DmgBonus', self.level)
+        self.grant_badge('DmgBonus', 20 * self.level)
 
 
 class Skywriting(RPSCard):
     type, slot = PAPER, 7
     ability_order = ('damage', 'health', 'restriction')
-    modifier = '5L%health health.'
-    text = ('10L%health damage. Next turn you cannot select abilities matching '
-            'the first type in the pattern.')
+
+    @classmethod
+    def describe(cls, t):
+        def first_type():
+            return TYPES[t.view.pattern.sequence[0]] if t.view.get('pattern') else None
+
+        return (f"{t.v('11L%health', lambda: t.other.hp * 11 * t.L / 100)} damage. Next turn you cannot "
+                f"select abilities matching {t.v('the first type in the pattern', first_type)}.")
+
+    @classmethod
+    def describe_modifier(cls, t):
+        return f"{t.v('7L%health', lambda: t.player.hp * 7 * t.L / 100)} health."
 
     def damage(self):
-        self.hit(self.other_seat, self.selection.health_before[self.other_seat] * self.level / 10)
+        self.hit(self.other_seat, self.selection.health_before[self.other_seat] * 11 * self.level / 100)
 
     def health(self):
         if self.modified:
-            heal(self.state, self.seat, self.selection.health_before[self.seat] * self.level / 20)
+            heal(self.state, self.seat, self.selection.health_before[self.seat] * 7 * self.level / 100)
 
     def restriction(self):
         add_restriction(self.state, self.seat, 'TypeBlocked',
@@ -628,12 +847,32 @@ class Skywriting(RPSCard):
 
 class Scissorstorm(RPSCard):
     type, slot = SCISSORS, 8
-    ability_order = ('damage',)
-    modifier = 'Also apply the losing ability\'s level damage to other opposing abilities of its type.'
-    text = '7+2L damage. Apply the losing ability\'s level damage to all opposing abilities in its tier.'
+    ability_order = ('respec', 'damage')
+
+    @classmethod
+    def describe(cls, t):
+        return (f"{t.v('20X', lambda: 20 * sum(c.level for c in t.player.cards[:9] if c.type == SCISSORS))} "
+                "damage, where X is the sum of your scissors levels. Also does its level damage to each "
+                "other ability in the opposing ability's tier.")
+
+    @classmethod
+    def describe_modifier(cls, t):
+        def previous():
+            card = t.last_selection()
+            return 'none' if card is None else card.name
+
+        return (f"First, {t.v('the ability you chose last turn', previous)} becomes scissors for 3 turns, "
+                "counting this one.")
+
+    def respec(self):
+        previous = self.player.get('last_selection')
+        if self.modified and previous:
+            card = self.player.cards[previous['slot']]
+            set_type(card, SCISSORS, until=self.state.meta.round + 2)
+            self.state.meta.message.append(f'{self.seat}: {card.name} becomes scissors for 3 turns')
 
     def damage(self):
-        self.hit(self.other_seat, 7 + 2 * self.level)
+        self.hit(self.other_seat, 20 * self.total_level(SCISSORS, (self.seat,)))
 
     def level_damage(self):
         if not self.winning or self.opposing_slot is None:
@@ -641,11 +880,7 @@ class Scissorstorm(RPSCard):
         amount = self.numeric_badges('level_damage', 1)
         targets = [self.opposing_slot]
         targets.extend(card.slot for card in self.other.cards[:9]
-                       if card.slot != self.opposing_slot
-                       and card.slot // 3 == self.opposing_slot // 3)
-        if self.modified:
-            targets.extend(card.slot for card in self.other.cards[:9]
-                           if card.slot not in targets and card.type == self.opposing_type)
+                       if card.slot != self.opposing_slot and card.slot // 3 == self.opposing_slot // 3)
         for slot in targets:
             level_damage(self.state, self.other_seat, slot, amount)
 

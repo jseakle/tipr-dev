@@ -69,3 +69,40 @@ Wirecutter now: "X damage, where X is the sum of your scissors levels. Gain a ba
 
 Premonition was: could reveal an ability unlocked in the current stage.
 Premonition now: only reveals abilities unlocked in an earlier stage.
+
+2026-10-18
+
+1.
+
+Nugget was: "10 damage. $1+L/2. T1: +L damage, $3. T2: gain a +2 level damage badge. Modifier: Triple coins."
+Nugget now: "5L + 5 damage. $2L. T1: +5L damage. T2: gain a +2 level damage badge. Modifier: Triple coins."
+
+LoveLetter was: "5 damage. L health. T1: +%health damage equal to your health% minus your opponent's health%. T2: double health before T1. Modifier: Double health."
+LoveLetter now: "5 damage. 3L health. T1: uncrack a random one of your cracked abilities. T2: double health (stacks with the modifier). Modifier: Double health."
+
+Dagger was: "15 + 3L damage. If this advances your indicator, $2. T1: your opponent cannot act in the same stage next turn. T2: double damage. Modifier: +2L damage."
+Dagger now: "10L + 10 damage. If this advances your indicator, $2. T1: your opponent cannot act in the same stage next turn. T2: double damage. Modifier: +5L damage."
+
+Avalanche was: "4+L damage. $4+L. T1: all your rock abilities level up. Modifier: Your opponent loses $L."
+Avalanche now: "10L damage. $4L. When this levels up, your other rock abilities level up too. T1: level damage dealt this round also applies to all other abilities of the opposing type. Modifier: Your opponent cannot spend coins next turn."
+
+Thesaurus was: "1 damage. Gain a shield at level 1+, and two more at level 5+. T1: +X damage, where X is opposing coins spent this turn; disable the opposing ability for one turn. Modifier: Your opponent loses all shields before damage."
+Thesaurus now: "1 damage three times (badges only boost the first hit). Gain a shield if this is level one or higher. Gain two more if it is level three or higher. T1: disable your opponent's abilities of the opposing type for one turn. Modifier: The third hit does +X damage, where X is the coins your opponent spent last turn plus this turn."
+
+Shears was: "5+5L damage. When this levels down, 10 damage. T1: your opponent gains a badge that halves effective level. Modifier: Your opponent cannot spend coins next turn."
+Shears now: "15L + 15 damage. When this levels down, 10 damage. T1: your opponent gains a badge that halves effective level. Modifier: A random non-scissors ability of yours becomes scissors next turn."
+
+Asteroid was: "4+L damage to both players, opponent first. $X, where X is damage you took last turn. Gain a +L damage badge. Modifier: Steal $X instead."
+Asteroid now: "Gain a +20L damage badge. $X, where X is the damage you have taken since you last won RPS. Modifier: Your opponent loses $X."
+
+Skywriting was: "10L%health damage. Next turn you cannot select abilities matching the first type in the pattern. Modifier: 5L%health health."
+Skywriting now: "11L%health damage. Next turn you cannot select abilities matching the first type in the pattern. Modifier: 7L%health health."
+
+Scissorstorm was: "7+2L damage. Apply the losing ability's level damage to all opposing abilities in its tier. Modifier: Also apply the losing ability's level damage to other opposing abilities of its type."
+Scissorstorm now: "20X damage, where X is the sum of your scissors levels. Also does its level damage to each other ability in the opposing ability's tier. Modifier: First, the ability you chose last turn becomes scissors for 3 turns, counting this one."
+
+Same type in different stages was: the ability selected earlier happens at half level.
+Same type in different stages now: the ability selected later happens at half level.
+
+Starting ability levels were: equal to the ability's tier.
+Starting ability levels now: 1

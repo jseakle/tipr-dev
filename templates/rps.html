@@ -40,9 +40,6 @@
 <div id="gameboard"></div>
 <div id="ability_texts" style="display:none">
 <div id="none_text"><em>Hover over an ability to see its text.</em></div>
-{% for card in cards %}
-<div id="{{ card.slot }}_text"><strong>{{ card.name }}</strong> (tier {{ card.tier }})<br>{{ card.text }}{% if card.modifier %}<br><br><strong>Modifier (${{ card.modifier_cost }}):</strong> {{ card.modifier }}{% endif %}</div>
-{% endfor %}
 {% for coin in coin_texts %}
 <div id="coin_{{ coin.name }}_text"><strong>{{ coin.name }}</strong> (tier {{ coin.tier }}, ${{ coin.cost }})<br>{{ coin.text }}</div>
 {% endfor %}

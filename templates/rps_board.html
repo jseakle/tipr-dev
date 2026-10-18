@@ -67,6 +67,11 @@
 </select><br>
 {% endif %}
 {% for reveal in premonitions %}<div>{{ reveal }} was not chosen in an earlier stage.</div>{% endfor %}
+<div id="card_texts" style="display:none">
+{% for card in cards %}
+<div id="{{ card.slot }}_text"><strong>{{ card.ability_name }}</strong> (tier {{ card.tier }})<br>{{ card.text }}{% if card.modifier_text and not basic_only %}<br><br><strong>Modifier (${{ card.modifier_cost }}):</strong> {{ card.modifier_text }}{% endif %}</div>
+{% endfor %}
+</div>
 </div>
 <span style="background:#008CBA">{{gamestate.p1.shields.n}}🛡 {{ p1_badges }}</span>
 <span style="background:#f44336">{{ p2_badges }} {{gamestate.p2.shields.n}}🛡</span>

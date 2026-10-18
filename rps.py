@@ -4,9 +4,12 @@ from math import isfinite
 from numbers import Real
 from random import choice, randint, shuffle
 
+from django.utils.safestring import mark_safe
+
 from .rps_cards import (
     CARD_CLASSES, COIN_ABILITIES, DECKS, active_restrictions,
-    add_restriction, describe_badge, describe_restriction, heal, health_percent, hurt, level_up,
+    CardText, add_restriction, describe_badge, describe_restriction, expire_temporary_types,
+    heal, health_percent, hurt, level_up, set_type,
 )
 from .rps_bots import EnsembleBot, RandomBot
 from .rules import Rules
@@ -73,13 +76,14 @@ class RPSRules(Rules):
             'max_hp': max_hp, 'hp': starting_hp, 'coins': 2,
             'selection': {}, 'modifier': None, 'infiltrate': False,
             'premonitions': {'2': [], '3': []},
-            'coins_spent': 0, 'damage_taken': 0, 'last_damage': 0,
+            'coins_spent': 0, 'last_coins_spent': 0,
+            'damage_taken': 0, 'last_damage': 0, 'damage_since_win': 0,
             'last_selection': None,
             'badges': [], 'badges_used': [],
             'shields': {'n': 0, 'this_turn': 0},
             'restrictions': [], 'stages': self.fresh_stages(),
             'cards': [
-                {'name': name, 'level': slot // 3 + 1 if slot < 9 else 1, 'cracked': False,
+                {'name': name, 'level': 1, 'cracked': False,
                  'type': CARD_CLASSES[name].type, 'slot': slot}
                 for slot, name in enumerate(options['deck'])
             ],
@@ -187,15 +191,6 @@ class RPSRules(Rules):
         delta.update(patch)
         return delta
 
-    @staticmethod
-    def deck_text(game):
-        return [Box(name=card['name'], slot=card['slot'],
-                    text=CARD_CLASSES[card['name']].text,
-                    modifier=CARD_CLASSES[card['name']].modifier,
-                    modifier_cost=CARD_CLASSES[card['name']].modifier_cost(),
-                    tier=card['slot'] // 3 + 1)
-                for card in game.gamestate['p1']['cards'][:9]]
-
     def get_selections(self, gamestate, seats=seats):
         result = []
         for seat in seats:
@@ -291,7 +286,7 @@ class RPSRules(Rules):
                 self._set_resolution(options, state, selected)
         else:
             if p1.card.type == p2.card.type:
-                winner, loser = (p1, p2) if p1.stage < p2.stage else (p2, p1)
+                winner, loser = (p1, p2) if p1.stage > p2.stage else (p2, p1)
                 outcome, factor, timing = 'ambush', .5, 0
             else:
                 winner, loser = (p1, p2) if (p1.card.type - p2.card.type) % 3 == 1 else (p2, p1)
@@ -307,7 +302,8 @@ class RPSRules(Rules):
             'truce': 'Truce: both players take 1 damage' + ('.' if basic else ' and earn $1.'),
             'default': 'One player passes: +2 health' + ('' if basic else ' and $2') + ', then the selected ability.',
             'tie': f'Same type and stage: {order[0].seat} acts first.',
-            'ambush': f'{order[0].seat} acts at half level, without timing bonuses.',
+            'ambush': f'Same type, different stages: {order[0].seat} picked later and acts at half level, '
+                      'without timing bonuses.',
             'win': f'{order[0].seat} wins RPS.',
         }
         state.meta.message.append(descriptions[outcome])
@@ -316,13 +312,18 @@ class RPSRules(Rules):
         selections = dict(zip(seats, self.get_selections(state)))
         self._advance_pattern(state)
         next_round = state.meta.round + 1
+        outcome = state.meta.outcome
         for seat in seats:
             player = state[seat]
             selected = selections[seat]
+            if outcome.type in ('win', 'ambush') and outcome.player == seat:
+                player.damage_since_win = 0
+            expire_temporary_types(player, next_round)
             player.last_selection = ({'slot': selected.card.slot, 'type': selected.card.type}
                                      if selected is not None else None)
             player.last_damage = player.get('damage_taken', 0)
             player.damage_taken = 0
+            player.last_coins_spent = player.get('coins_spent', 0)
             player.coins_spent = 0
             player.modifier = None
             player.infiltrate = False
@@ -503,7 +504,7 @@ class RPSRules(Rules):
             card = player.cards[move['selection']]
             previous_type = card.type
             if player.get('infiltrate'):
-                card.type = move['as_type']
+                set_type(card, move['as_type'])
             player.stages[stage].append({
                 'kind': 'RPS', 'slot': card.slot, 'type': card.type,
                 'previous_type': previous_type, 'modifier': player.get('modifier'),
@@ -545,9 +546,14 @@ class RPSRules(Rules):
         own_seat = seats[seat] if seat in (0, 1) else None
         selected = [selection.card.slot if selection else None for selection in self.get_selections(visible)]
         cards, modifiers = [], []
+        perspective = own_seat or 'p1'
         for card in visible.p1.cards[:9]:
             other = visible.p2.cards[card.slot]
             ability = CARD_CLASSES[card.name]
+            # Card text only contains fixed wording, numbers, type names, and ability names.
+            live = CardText(visible, perspective, card.slot)
+            plain = CardText(visible, perspective, card.slot, html=False)
+            modifier_plain = ability.describe_modifier(plain) if ability.modifier else None
             mine = visible[own_seat].cards[card.slot] if own_seat else card
             color_index = int(card.slot == selected[0]) + 2 * int(card.slot == selected[1])
             color = [WHITE, BLUE, RED, YELLOW][color_index]
@@ -568,7 +574,7 @@ class RPSRules(Rules):
                     cost=ability.modifier_cost(), checked=bool(check_index),
                     check_color=[WHITE, BLUE, RED, YELLOW][check_index],
                     disabled=not context.active or modifier_error is not None,
-                    reason=modifier_error or f'Modifier (${ability.modifier_cost()}): {ability.modifier}',
+                    reason=modifier_error or f'Modifier (${ability.modifier_cost()}): {modifier_plain}',
                 )
                 modifiers.append(modifier)
             cards.append(Box(
@@ -576,7 +582,11 @@ class RPSRules(Rules):
                 name=f"{card.level:g}{'X' if card.cracked else ''} {card.name} {other.level:g}{'X' if other.cracked else ''}",
                 type_label=f'{TYPES[card.type]} / {TYPES[other.type]}',
                 color=color, disabled=not context.active or error is not None,
-                reason=error or ability.text, modifier=modifier,
+                reason=error or ability.describe(plain), modifier=modifier,
+                ability_name=card.name, tier=card.slot // 3 + 1,
+                text=mark_safe(ability.describe(live)),
+                modifier_text=mark_safe(ability.describe_modifier(live)) if ability.modifier else None,
+                modifier_cost=ability.modifier_cost(),
             ))
         context.cards = cards
         context.modifiers = modifiers
@@ -621,5 +631,5 @@ class RPSRules(Rules):
 
     def game_data(self, game, seat):
         coins = {} if self.basic_only(game.gamestate) else COIN_ABILITIES
-        return {'cards': self.deck_text(game), 'fps': game.options.get('fps', 8),
+        return {'fps': game.options.get('fps', 8),
                 'coin_texts': [Box(name=name, **data) for name, data in coins.items()]}
