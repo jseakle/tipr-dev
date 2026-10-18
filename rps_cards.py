@@ -585,12 +585,12 @@ class TwoHander(RPSCard):
 
     @classmethod
     def describe(cls, t):
-        return (f"{t.when('5 damage at level zero', lambda: t.L == 0)}, "
-                f"{t.when('otherwise 50 damage', lambda: t.L != 0)}. If the opposing ability is cracked, "
+        return (f"{t.when('5 damage below level one', lambda: t.L < 1)}, "
+                f"{t.when('otherwise 50 damage', lambda: t.L >= 1)}. If the opposing ability is cracked, "
                 "disable all opposing abilities for one turn and this ability for three turns.")
 
     def damage(self):
-        self.hit(self.other_seat, 5 if self.level == 0 else 50)
+        self.hit(self.other_seat, 50 if self.level >= 1 else 5)
 
     def restriction(self):
         if self.opposing_slot is not None and self.other.cards[self.opposing_slot].cracked:
