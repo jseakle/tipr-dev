@@ -607,6 +607,11 @@ class RPSRules(Rules):
         passed = [any(action['kind'] == 'pass' for action in visible[player].stages.get(str(min(stage, 3)), []))
                   for player in seats]
         context.pass_color = [WHITE, BLUE, RED, YELLOW][int(passed[0]) + 2 * int(passed[1])]
+        requested = self.rewind_requests(game)
+        rewind_error = self.rewind_error(game, seat)
+        context.rewind_color = [WHITE, BLUE, RED, YELLOW][int('p1' in requested) + 2 * int('p2' in requested)]
+        context.rewind_disabled = rewind_error is not None or own_seat in requested
+        context.rewind_reason = rewind_error or 'Goes back to the start of the previous round once both players press it'
         context.infiltrate = bool(own_seat and visible[own_seat].get('infiltrate') and stage < 4)
         context.premonitions = []
         if own_seat:

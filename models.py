@@ -89,13 +89,14 @@ class Game(models.Model):
 
     def rewind(self, keyframes, reason):
         blessed_history = list(filter(lambda interval: 'rewound' not in interval[0], self.history))
+        # The restored round is replayed in a fresh interval, so blessed history stays one timeline.
+        for interval in blessed_history[-(keyframes+1):]:
+            interval[0]['rewound'] = True
         self.gamestate = deepcopy(blessed_history[-(keyframes+1)][0]['info'])
-        for i in range(1, keyframes+1):
-            self.history[-i][0]['rewound'] = True
+        self.keyframe()
         if self.status == ACTIVE:
             now = tznow()
             self.last_tick = now
-            self.next_tick = -1
             self.chat('system', reason, now)
             self.event('rewind', reason, now)
         self.save()

@@ -5,7 +5,7 @@ from copy import deepcopy
 from django.core.cache import cache
 from django.db import transaction
 
-from .utils import ACTIVE, FINISHED, PAUSED, Box, gen_patch, send, tznow, update
+from .utils import ACTIVE, FINISHED, PAUSED, Box, gen_patch, seats, send, tznow, update
 from django.http.response import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect
 from django.template.loader import render_to_string
@@ -161,6 +161,25 @@ def apply_game_delta(game, rules, delta, now, event_type):
     return state
 
 
+def request_rewind(game, rules, seat, now):
+    """Record seat's rewind request; once every seat has asked, go back to the previous round's start."""
+    if error := rules.rewind_error(game, seat):
+        return {'error': error}
+    requests = game.history[-1][0].setdefault('rewind_requests', [])
+    if seats[seat] not in requests:
+        requests.append(seats[seat])
+        game.chat('system', f'{game.people[0][seat]} wants to rewind to the start of the previous round', now)
+    if rules.rewind_requests(game) >= set(seats):
+        # Reopens a finished game.
+        game.status = ACTIVE
+        game.rewind(1, 'Rewound to the start of the previous round')
+        game.next_tick = rules.next_tick(game)
+        game.save()
+        pause_others(game)
+    transaction.on_commit(lambda: send(f'{game.type}_{game.pk}', {'task': 'update', 'id': game.pk, 'load': False}))
+    return {}
+
+
 class Update(object):
 
     @staticmethod
@@ -221,19 +240,18 @@ class Submit(View):
 
             move = move[6:]
             if move == 'rewind':
-                if sum('rewound' not in interval[0] for interval in game.history) < 2:
-                    return JsonResponse({'error': 'There is no previous round to rewind to'})
-                msg = f'{name} clicked rewind'
-                game.rewind(1, msg)
+                move = {'type': 'rewind'}
+            else:
+                game.chat(name, move)
                 return JsonResponse({})
-            game.chat(name, move)
-            return JsonResponse({})
                 
 
         rules = rules_classes[game.type]
         seat = get_seat(game, name)
         if seat == -1:
             return JsonResponse({'error': f'{name} tried to move but is not a player'})
+        if move == {'type': 'rewind'}:
+            return JsonResponse(request_rewind(game, rules, seat, now))
         delta = rules.move(game, seat, move)
         if 'error' in delta:
             logging.warning('Move rejected: %s', delta['error'])

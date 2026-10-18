@@ -16,11 +16,9 @@ def round_types(history, seat):
     """(this seat's type, opponent's type) for each finished round; None where nothing was picked."""
     other = 'p2' if seat == 'p1' else 'p1'
     rounds = []
-    for interval in history[1:]:
-        frame = interval[0]
-        if 'rewound' in frame:
-            continue
-        info = frame['info']
+    blessed = [interval for interval in history if 'rewound' not in interval[0]]
+    for interval in blessed[1:]:
+        info = interval[0]['info']
         mine, theirs = info[seat].get('last_selection'), info[other].get('last_selection')
         rounds.append((mine and mine['type'], theirs and theirs['type']))
     return rounds

@@ -59,7 +59,10 @@
 {% endfor %}
 </table>
 <button id="pass_button" style="background-color:{{ pass_color }};width:130px;" name="pass"
-        {% if pass_disabled %}disabled{% endif %} onclick="submit(JSON.stringify({type: 'pass'}))">Pass stage</button><br>
+        {% if pass_disabled %}disabled{% endif %} onclick="submit(JSON.stringify({type: 'pass'}))">Pass stage</button>
+<button id="rewind_button" style="background-color:{{ rewind_color }};width:130px;" name="rewind"
+        title="{{ rewind_reason }}" {% if rewind_disabled %}disabled{% endif %}
+        onclick="submit(JSON.stringify({type: 'rewind'}))">Rewind</button><br>
 {% if infiltrate %}
 <label for="infiltrate-type">Infiltrate type:</label>
 <select id="infiltrate-type">

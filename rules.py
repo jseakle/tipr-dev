@@ -18,6 +18,20 @@ class Rules(object):
     def do_update(self, game):
         return self.pure_update(Box(game.options), Box(game.gamestate), game.history)
 
+    def rewind_requests(self, game):
+        # Stored on the round's history entry, so the next round or rewind starts with none.
+        requested = set(game.history[-1][0].get('rewind_requests', []))
+        return requested | {seat for seat, name in zip(seats, game.people[0]) if name in self.computer_players}
+
+    def rewind_error(self, game, seat):
+        if seat not in (0, 1):
+            return 'Only seated players can rewind'
+        if game.status not in (ACTIVE, FINISHED):
+            return 'The game is not in progress'
+        if sum('rewound' not in interval[0] for interval in game.history) < 2:
+            return 'There is no previous round to rewind to'
+        return None
+
     def change_callback_data(self, name, seat, game, gamestate, now):
         pass
 
