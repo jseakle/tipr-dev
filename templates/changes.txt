@@ -109,3 +109,9 @@ Starting ability levels now: 1
 
 TwoHander was: "5 damage at level zero, otherwise 50 damage. If the opposing ability is cracked, disable all opposing abilities for one turn and this ability for three turns."
 TwoHander now: "5 damage below level one, otherwise 50 damage. If the opposing ability is cracked, disable all opposing abilities for one turn and this ability for three turns."
+
+2. 
+
+Scissorstorm 20X -> 17X
+Skywriting 11L%health -> 24L%health
+Skywriting 7L%health -> 20L%health

@@ -45,8 +45,10 @@ class Register(View):
         name = request.POST.get('name')
         if not name or name in reserved_names:
             return JsonResponse({'error': 'please choose a different name'})
-        cache.set(request.session.session_key, name)
         request.session['name'] = name
+        # A first visit has no session key until saved, and websockets find the name by that key.
+        request.session.save()
+        cache.set(request.session.session_key, name)
 
         next = request.session.get('redirected_from')
         if next:

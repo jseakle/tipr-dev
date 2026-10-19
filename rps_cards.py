@@ -826,19 +826,19 @@ class Skywriting(RPSCard):
         def first_type():
             return TYPES[t.view.pattern.sequence[0]] if t.view.get('pattern') else None
 
-        return (f"{t.v('11L%health', lambda: t.other.hp * 11 * t.L / 100)} damage. Next turn you cannot "
+        return (f"{t.v('24L%health', lambda: t.other.hp * 24 * t.L / 100)} damage. Next turn you cannot "
                 f"select abilities matching {t.v('the first type in the pattern', first_type)}.")
 
     @classmethod
     def describe_modifier(cls, t):
-        return f"{t.v('7L%health', lambda: t.player.hp * 7 * t.L / 100)} health."
+        return f"{t.v('20L health', lambda: 20 * t.L)} health."
 
     def damage(self):
-        self.hit(self.other_seat, self.selection.health_before[self.other_seat] * 11 * self.level / 100)
+        self.hit(self.other_seat, self.selection.health_before[self.other_seat] * 24 * self.level / 100)
 
     def health(self):
         if self.modified:
-            heal(self.state, self.seat, self.selection.health_before[self.seat] * 7 * self.level / 100)
+            heal(self.state, self.seat, 20 * self.level)
 
     def restriction(self):
         add_restriction(self.state, self.seat, 'TypeBlocked',
@@ -851,7 +851,7 @@ class Scissorstorm(RPSCard):
 
     @classmethod
     def describe(cls, t):
-        return (f"{t.v('20X', lambda: 20 * sum(c.level for c in t.player.cards[:9] if c.type == SCISSORS))} "
+        return (f"{t.v('17X', lambda: 17 * sum(c.level for c in t.player.cards[:9] if c.type == SCISSORS))} "
                 "damage, where X is the sum of your scissors levels. Also does its level damage to each "
                 "other ability in the opposing ability's tier.")
 
@@ -872,7 +872,7 @@ class Scissorstorm(RPSCard):
             self.state.meta.message.append(f'{self.seat}: {card.name} becomes scissors for 3 turns')
 
     def damage(self):
-        self.hit(self.other_seat, 20 * self.total_level(SCISSORS, (self.seat,)))
+        self.hit(self.other_seat, 17 * self.total_level(SCISSORS, (self.seat,)))
 
     def level_damage(self):
         if not self.winning or self.opposing_slot is None:
